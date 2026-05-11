@@ -51,10 +51,13 @@ function formatRelative(iso: string): string {
 export function LeadsTable({
   leads,
   selectedId,
+  newRowIds,
   onSelect,
 }: {
   leads: LeadRow[];
   selectedId: string | null;
+  /** Realtime ile yeni dusen satirlar — kisa bir highlight animasyonu icin. */
+  newRowIds?: Set<string>;
   onSelect: (lead: LeadRow) => void;
 }) {
   if (leads.length === 0) {
@@ -86,6 +89,7 @@ export function LeadsTable({
           <tbody className="divide-y divide-slate-100">
             {leads.map((lead) => {
               const isSelected = lead.id === selectedId;
+              const isNew = newRowIds?.has(lead.id);
               return (
                 <tr
                   key={lead.id}
@@ -103,6 +107,7 @@ export function LeadsTable({
                     "cursor-pointer transition outline-none",
                     isSelected ? "bg-brand-50" : "hover:bg-slate-50",
                     "focus-visible:bg-brand-50",
+                    isNew && "animate-row-highlight",
                   )}
                 >
                   <td className="px-4 py-3">
@@ -143,6 +148,7 @@ export function LeadsTable({
       <ul className="md:hidden divide-y divide-slate-100">
         {leads.map((lead) => {
           const isSelected = lead.id === selectedId;
+          const isNew = newRowIds?.has(lead.id);
           return (
             <li
               key={lead.id}
@@ -159,6 +165,7 @@ export function LeadsTable({
               className={cn(
                 "px-4 py-3 cursor-pointer transition outline-none",
                 isSelected ? "bg-brand-50" : "hover:bg-slate-50",
+                isNew && "animate-row-highlight",
               )}
             >
               <div className="flex items-start justify-between gap-2 mb-2">

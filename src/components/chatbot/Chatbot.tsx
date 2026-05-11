@@ -38,6 +38,7 @@ import type {
   Step,
   UIMessage,
 } from "@/lib/conversation/types";
+import { submitLead } from "@/lib/api/submitLead";
 
 const TYPING_DELAY_MS = 550;
 
@@ -182,8 +183,9 @@ export function Chatbot() {
         case "submit": {
           const nextLead = { ...stateAfterUser.leadData, ...result.updates };
           await playBotTurn(stateAfterUser, "submitted", nextLead);
-          // Faz 1: Supabase'e gonderme — sadece console.log.
-          // Sema: src/types/lead.ts > LeadInput. Diger oturum /api/leads ile birlestirecek.
+
+          // /api/leads'e fire-and-forget POST. Kullanici "Talebinizi olusturduk"
+          // mesajini hemen goruyor — backend hatasi UI'i bloklamiyor.
           const durationSec = Math.round(
             (Date.now() - new Date(stateAfterUser.startedAt).getTime()) / 1000,
           );
@@ -192,23 +194,15 @@ export function Chatbot() {
             content: m.content,
             timestamp: m.timestamp,
           }));
-          const payload = {
-            // LeadInput alanlari
-            name: nextLead.name ?? "",
-            company: nextLead.company ?? "",
-            email: nextLead.email ?? "",
-            intent: nextLead.intent,
-            volume: nextLead.volume,
-            currentTool: nextLead.currentTool,
-            timeline: nextLead.timeline ?? undefined,
-            conversationDurationSec: durationSec,
-            // Spam savunma + audit (server-side validate edilecek)
-            honeypot: "",
+          void submitLead({
+            leadData: nextLead,
             transcript,
-            // Skoring icin yardimci sinyal
-            emailIsPersonal: nextLead.emailIsPersonal,
-          };
-          console.log("[chatbot] leadData (submission stub):", payload);
+            conversationDurationSec: durationSec,
+          }).then((r) => {
+            if (!r.success) {
+              console.warn("[chatbot] submitLead failed (UI not blocked):", r.message);
+            }
+          });
           break;
         }
         case "clarify": {

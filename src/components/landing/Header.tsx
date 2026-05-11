@@ -24,9 +24,6 @@ export function Header() {
           <a href="#stats" className="hover:text-slate-900 transition">
             Müşteriler
           </a>
-          <a href="#faq" className="hover:text-slate-900 transition">
-            SSS
-          </a>
         </nav>
 
         <button

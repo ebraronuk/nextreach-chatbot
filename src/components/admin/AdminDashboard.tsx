@@ -11,8 +11,8 @@
  * supabase browser client ile subscribe edilebilir; bu MVP'de manuel
  * "yenile" yeterli kabul edildi (link adresi tek tikla yenilenebilir).
  */
-import { useMemo, useState } from "react";
-import type { LeadRow } from "@/lib/db/supabase";
+import { useEffect, useMemo, useState } from "react";
+import { getBrowserClient, type LeadRow } from "@/lib/db/supabase";
 import { FiltersBar, type TemperatureFilter, type StatusFilter, type DateFilter } from "./FiltersBar";
 import { LeadsTable } from "./LeadsTable";
 import { LeadDetailPanel } from "./LeadDetailPanel";
@@ -45,6 +45,50 @@ export function AdminDashboard({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [newRowIds, setNewRowIds] = useState<Set<string>>(() => new Set());
+
+  // Realtime: yeni lead'ler INSERT olunca anlik dussun.
+  // Not: Bu calismasi icin supabase/schema.sql icindeki anon select policy
+  // Supabase'de aktif olmali. Policy yoksa kanal silent yapar, hata kapali.
+  useEffect(() => {
+    const sb = getBrowserClient();
+    const channel = sb
+      .channel("admin-leads-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "leads" },
+        (payload) => {
+          const row = payload.new as LeadRow;
+          setLeads((prev) => {
+            // ayni id ikinci kez gelirse coklama yapma
+            if (prev.some((l) => l.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+          setNewRowIds((prev) => new Set(prev).add(row.id));
+          // 3 saniye sonra highlight'i kaldir
+          setTimeout(() => {
+            setNewRowIds((prev) => {
+              const next = new Set(prev);
+              next.delete(row.id);
+              return next;
+            });
+          }, 3000);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "leads" },
+        (payload) => {
+          const row = payload.new as LeadRow;
+          setLeads((prev) => prev.map((l) => (l.id === row.id ? row : l)));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     let arr = leads;
@@ -125,6 +169,7 @@ export function AdminDashboard({
       <LeadsTable
         leads={filtered}
         selectedId={selectedId}
+        newRowIds={newRowIds}
         onSelect={(l) => setSelectedId(l.id)}
       />
 

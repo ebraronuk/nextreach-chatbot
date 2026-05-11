@@ -36,7 +36,11 @@ const LeadBodySchema = z.object({
   intent: z.enum(["demo", "pricing", "integration", "support", "other"]).optional(),
   volume: z.enum(["<500", "500-5k", "5k-50k", "50k+"]).optional(),
   currentTool: z.string().max(120).optional(),
-  timeline: z.enum(["this-week", "this-month", "this-quarter", "researching"]).optional(),
+  // Chatbot "Atla" chip'i timeline: null gonderebiliyor. Hem null hem undefined kabul.
+  timeline: z
+    .enum(["this-week", "this-month", "this-quarter", "researching"])
+    .nullable()
+    .optional(),
   preferredContactTime: z.string().max(160).optional(),
   transcript: z.array(ChatMessageSchema).max(200).default([]),
   conversationDurationSec: z.number().int().min(0).max(86400).default(0),
@@ -165,8 +169,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Scoring
-  const { score, breakdown, temperature } = scoreLead(data);
+  // Scoring — LeadInput timeline'i null kabul etmiyor; null'i undefined'a coerce et.
+  const { score, breakdown, temperature } = scoreLead({
+    ...data,
+    timeline: data.timeline ?? undefined,
+  });
 
   // Insert
   const supabase = getServerClient();
@@ -178,7 +185,7 @@ export async function POST(req: NextRequest) {
     intent: data.intent ?? null,
     volume: data.volume ?? null,
     current_tool: data.currentTool?.trim() || null,
-    timeline: data.timeline ?? null,
+    timeline: data.timeline ?? null, // hem null hem undefined buraya dusebilir
     preferred_contact_time: data.preferredContactTime?.trim() || null,
     score,
     temperature,
@@ -230,7 +237,7 @@ async function runAfterInsert(
       intent: data.intent,
       volume: data.volume,
       currentTool: data.currentTool,
-      timeline: data.timeline,
+      timeline: data.timeline ?? undefined,
       transcript: data.transcript,
     });
 
@@ -323,14 +330,24 @@ export async function PATCH(req: NextRequest) {
   }
 
   const supabase = getServerClient();
-  const { error } = await supabase
+  // .select("id").maybeSingle() ile etkilenen satiri geri istiyoruz:
+  // id eslesmediginde Supabase hata vermiyor; bu kontrol sessiz no-op'u engeller.
+  const { data: updated, error } = await supabase
     .from("leads")
     .update({ status: parsed.data.status })
-    .eq("id", parsed.data.id);
+    .eq("id", parsed.data.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     console.error("[/api/leads PATCH] supabase error", error);
     return NextResponse.json({ ok: false, message: "Guncelleme basarisiz." }, { status: 500 });
+  }
+  if (!updated) {
+    return NextResponse.json(
+      { ok: false, message: "Lead bulunamadi." },
+      { status: 404 },
+    );
   }
   return NextResponse.json({ ok: true });
 }
