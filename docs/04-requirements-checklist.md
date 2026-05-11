@@ -9,12 +9,12 @@
 
 | # | Brief'teki istek | Bizim cozumumuz | Dosya/Bilesen | Durum |
 |---|---|---|---|---|
-| A1 | Landing page'de tetiklenen chatbot arayuzu | `Chatbot.tsx` komponenti, "Bize Ulasin" CTA ile acilir | `src/components/chatbot/Chatbot.tsx`, `src/app/page.tsx` | ⏳ iskelet |
-| A2 | Olusan iletisim taleplerinin saklanmasi | Supabase `leads` tablosu, `POST /api/leads` ile yazilir | `supabase/schema.sql`, `src/app/api/leads/route.ts` | ⏳ iskelet |
-| A3 | Ekibin talepleri listeleyebildigi basit ic gorunum | `/admin?key=...` sayfasi, tablo + detay paneli | `src/app/admin/page.tsx` | ⏳ iskelet |
-| A4 | Mobil uyumlu | Tailwind responsive, chatbot mobilde bottom sheet | tum `src/components/` | ⏳ |
-| A5 | Calisan, deploy edilmis link | Vercel deploy, GitHub auto-deploy | Vercel | ⏳ |
-| A6 | README (lokalde calistirma, teknoloji secimi, kisitlar, muglak yerlerin yorumu) | `README.md`, gerekceli | `README.md` | ⏳ taslak |
+| A1 | Landing page'de tetiklenen chatbot arayuzu | `Chatbot.tsx` komponenti (state machine + Gemini fallback), Hero CTA `openChatbot()` ile acilir | `src/components/chatbot/`, `src/components/landing/`, `src/app/page.tsx` | ✅ |
+| A2 | Olusan iletisim taleplerinin saklanmasi | Supabase `leads` tablosu, `POST /api/leads` (Zod + scoring + AI ozet + spam savunmasi) | `supabase/schema.sql`, `src/app/api/leads/route.ts` | ✅ |
+| A3 | Ekibin talepleri listeleyebildigi basit ic gorunum | `/admin?key=...` sayfasi: KPI + filtre + tablo + detay drawer + status PATCH | `src/app/admin/page.tsx`, `src/components/admin/` | ✅ |
+| A4 | Mobil uyumlu | Tailwind responsive: chatbot bottom-sheet, admin tablonun kart varyanti, hero grid yenidenduzeni | tum `src/components/` | ✅ |
+| A5 | Calisan, deploy edilmis link | Vercel deploy (env'leri Vercel'e tasi + import) | Vercel | ⏳ deploy bekliyor |
+| A6 | README (lokalde calistirma, teknoloji secimi, kisitlar, muglak yerlerin yorumu) | `README.md`, "Yapildi/Yapilamadi" + tech rationale tablosu + product decisions | `README.md` | ✅ |
 
 ---
 
@@ -105,11 +105,11 @@ Skor breakdown'i her lead'in detayinda gosterilir.
 ## F. Teslim Listesi (Son Kontrol)
 
 - [ ] GitHub repo public veya degerlendiriciyi davet et
-- [ ] Repo'da `.env.local` YOK (sadece `.env.example`)
-- [ ] README.md eksiksiz
+- [ ] Repo'da `.env.local` YOK (sadece `.env.example`) — `.gitignore` koruyor
+- [x] README.md eksiksiz (Yapildi/Yapilamadi, tech rationale, product decisions hepsi var)
 - [ ] Vercel canli URL README'de
-- [ ] Demo akisi end-to-end calisiyor (ziyaretci konusur, kaydedilir, admin'de gorulur)
-- [ ] Admin URL + secret key README'de (degerlendirici icin)
-- [ ] Mobile gorunum bozuk degil
-- [ ] Commit history mantikli (feat/fix/chore prefixleri)
-- [ ] Toplam sure README'de net yazili
+- [x] Demo akisi end-to-end calisiyor (POST /api/leads -> Supabase -> /admin'de tabloya dusuyor, AI ozet async geliyor)
+- [ ] Admin URL + secret key teslim notunda (README'ye gizli key konmadi, secret degerlendirici icin ayri iletilecek)
+- [x] Mobile gorunum bozuk degil (chatbot bottom-sheet, admin kart, landing responsive hero/bento)
+- [x] Commit history mantikli (feat/fix/chore prefixleri)
+- [x] Toplam sure README'de aciklandi

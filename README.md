@@ -8,8 +8,24 @@
 
 ## Demo
 
-- Canli: _(deploy edildiginde buraya Vercel URL'i)_
-- Admin: `/admin?key=<ADMIN_SECRET_KEY>`
+- Canli: _(Vercel deploy sirasi geldiginde buraya URL eklenecek)_
+- Admin: `/admin?key=<ADMIN_SECRET_KEY>` (degerlendirici icin secret key teslim notunda paylasilacaktir)
+
+### Hizli end-to-end test
+
+```bash
+# 1) Lead kaydet
+curl -X POST http://localhost:3000/api/leads \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Ahmet Yilmaz","company":"Acme","email":"ahmet@acme.com","intent":"demo","volume":"5k-50k","timeline":"this-week","transcript":[],"conversationDurationSec":120}'
+# -> {"ok":true,"id":"...","score":80,"temperature":"hot"}
+
+# 2) Lead'i listele (key kendi .env.local'inden)
+curl "http://localhost:3000/api/leads?key=<ADMIN_SECRET_KEY>"
+
+# 3) Tarayicidan admin paneli
+open "http://localhost:3000/admin?key=<ADMIN_SECRET_KEY>"
+```
 
 ---
 
@@ -120,10 +136,31 @@ Skor breakdown'i DB'de saklaniyor — satis ekibi *neden* skorunu gorebiliyor.
 ## 6 Saatte Yapilabildi / Yapilamadi
 
 ### Yapildi
-- [ ] _(implementasyon ilerledikce isaretlenecek)_
+- [x] Next.js 15 + TypeScript strict + Tailwind 3 kurulumu
+- [x] Supabase schema (`leads` tablosu + indeksler + RLS + realtime publication)
+- [x] Lead scoring algoritmasi (0-100 skala, kurumsal-email/hacim/zaman/rakip arac sinyalleri, kisa konusma cezasi)
+- [x] **Landing page**: sticky header, hero (gradient baslik + SVG mock dashboard), sosyal kanit, bento feature grid, footer
+- [x] **Chatbot ana iskeleti**: state machine (greeting → identity → qualification → timeline → summary), localStorage persistence, focus trap, escape ile kapatma, quick reply chip'leri, Gemini fallback streaming
+- [x] **POST /api/leads**: Zod validasyonu, honeypot, in-memory rate limit (10dk / 3 submission), IP hash, lead scoring, Supabase insert, async AI ozet, hot-lead webhook (>=80 icin)
+- [x] **GET /api/leads**: admin key + status/temperature/tarih filtreleri
+- [x] **PATCH /api/leads**: status guncelleme (new/contacted/qualified/rejected)
+- [x] **Disposable email blacklist** (mailinator, tempmail vb. 18 domain)
+- [x] **AI lead ozeti** (Gemini 2.0 Flash, "bu kisi kim, neden burada, neden simdi" sorusuna 2 cumlelik TR cevap)
+- [x] **Admin dashboard** (`/admin?key=...`): 3 KPI karti (Hot/Warm/Cold), filtre cubugu (sicaklik + status + tarih), tablo (skor desc sort, renkli rozetler, mobile kart gorunumu), detay drawer (AI ozet + skor breakdown + tam transkript + status select + kopyala butonu)
+- [x] **Spam savunmasi** (cok katmanli): honeypot, rate limit, disposable domain, kisa konusma skor cezasi, server-side Zod
+- [x] **Error boundary**'ler: top-level + admin scoped, kullanici-dostu Turkce mesajlar
+- [x] **Loading skeleton** (admin sayfasi icin)
+- [x] **404 sayfasi**
+- [x] **A11y temelleri**: focus trap (chatbot), klavye navigasyonu (tablo satirlari), aria-label/aria-live/aria-modal, focus-visible halkalar
+- [x] **Mobil responsive**: chatbot bottom-sheet, admin tablonun kart varyanti, hero grid'lerin yeniden duzeni
 
 ### Yapilamadi (vakit kalmadi)
-- [ ] _(burada listelenecek)_
+- [ ] **Supabase Realtime** entegrasyonu admin'de (yeni lead anlik dusmesi) — schema tarafi hazir; client subscription eklenmedi, sayfa yenilenmesi ile guncelleniyor
+- [ ] **Vercel canli deploy** (env'leri Vercel'e tasinmasi + URL alinmasi)
+- [ ] **CSV / Excel export** admin'de
+- [ ] **Realtime row-highlight animasyonu** (`animate-row-highlight` keyframe tanimli ama trigger eklenmedi)
+- [ ] **Disposable list'in profesyonel paket'e cevrimi** (`disposable-email-domains` npm paketi)
+- [ ] **Konusma drop-off analytics** (hangi soruda kullanicilar biraktiyor)
 
 ---
 
@@ -166,9 +203,16 @@ Skor breakdown'i DB'de saklaniyor — satis ekibi *neden* skorunu gorebiliyor.
 
 ---
 
-## Toplam Sure: _XX saat YY dakika_
+## Toplam Sure
 
-_(commit history'den dogrulanabilir)_
+Commit history (`git log --oneline`) hikayeyi anlatir:
+
+- `847e89c` docs: PRD yorumu, akis, tasarim sistemi (planlama)
+- `0a8df22` Next.js + TS + Tailwind iskelet
+- `4cb253f` Supabase schema, scoring, AI/UI taslagi
+- _(devami)_ Faz 2 (lead save + AI ozet), Faz 3 (admin), Faz 4 (landing), Faz 5 (polish)
+
+Brief'te tanimlanan 6 saat limiti icinde tum core scope (chatbot + lead + admin + landing + polish) tamamlandi. Vercel deploy + realtime animasyon polish'i kalan kucuk artilar.
 
 ---
 

@@ -1,29 +1,37 @@
 /**
- * Landing page — placeholder.
- * Saat 04:45-05:15 araliginda gercek tasarim buraya gelecek:
- *   - Hero (NextReach pitch)
- *   - "Bize Ulasin" CTA -> Chatbot tetikler
- *   - Sosyal kanit (logos / istatistikler)
+ * Landing page.
+ *
+ * Bileşenler:
+ *   - Header     : sticky minimal nav (CTA + logo)
+ *   - Hero       : eyebrow + başlık + 2 CTA + mock dashboard
+ *   - SocialProof: 4 stat (300+ marka vb.)
+ *   - Features   : bento grid 3 + 1 entegrasyon kartı
  *   - Footer
+ *
+ * Chatbot floating CTA Chatbot komponenti tarafından kendi kendine render edilir.
+ * Hero ve Header'daki "Bize Ulaşın" butonları openChatbot helper'i ile aynı modal'i açar
+ * (DOM köprüsü — Chatbot.tsx dosyasına dokunulmadı).
  */
 import { Chatbot } from "@/components/chatbot/Chatbot";
+import { Header } from "@/components/landing/Header";
+import { Hero } from "@/components/landing/Hero";
+import { SocialProof } from "@/components/landing/SocialProof";
+import { Features } from "@/components/landing/Features";
+import { Footer } from "@/components/landing/Footer";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
-      <div className="max-w-2xl text-center space-y-4">
-        <h1 className="text-4xl font-bold tracking-tight">NextReach</h1>
-        <p className="text-slate-600">
-          Landing page burada olacak. Sag altta &quot;Bize Ulasin&quot; butonu
-          chatbot iskeletini aciyor.
-        </p>
-        <p className="text-sm text-slate-400">
-          (Bu placeholder, src/app/page.tsx icinde duzenlenecek.)
-        </p>
-      </div>
+    <>
+      <Header />
+      <main className="min-h-screen bg-white text-slate-900">
+        <Hero />
+        <SocialProof />
+        <Features />
+      </main>
+      <Footer />
 
-      {/* Chatbot floating CTA + modal. Asil mantik Faz 1'de gelecek. */}
+      {/* Chatbot kendi floating CTA'sini ve modal'ini render eder */}
       <Chatbot />
-    </main>
+    </>
   );
 }
