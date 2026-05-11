@@ -54,6 +54,12 @@ export function Chatbot() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<ConversationState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Honeypot — bot otomatik form doldurucularinin tipik olarak doldurdugu
+   * gizli alan. Insan kullanici asla goremez/dokunamaz (off-screen + aria-hidden
+   * + tabIndex -1). Doluysa backend sessizce reject ediyor.
+   */
+  const honeypotRef = useRef<HTMLInputElement>(null);
 
   // State'i ref'te de tutuyoruz — async callback'lerde stale closure'a karsi
   useEffect(() => {
@@ -198,6 +204,7 @@ export function Chatbot() {
             leadData: nextLead,
             transcript,
             conversationDurationSec: durationSec,
+            honeypot: honeypotRef.current?.value ?? "",
           }).then((r) => {
             if (!r.success) {
               console.warn("[chatbot] submitLead failed (UI not blocked):", r.message);
@@ -473,6 +480,22 @@ export function Chatbot() {
               placeholder={
                 isSubmitted ? "Sohbet tamamlandi" : "Mesajinizi yazin..."
               }
+            />
+
+            {/*
+              Honeypot — bot'lar gizli alanlari doldurma egilimindedir.
+              Insan kullanici goremez (off-screen + aria-hidden + tabIndex -1).
+              Backend doluysa sessizce reject ediyor (200 doner, ama yazmaz).
+            */}
+            <input
+              ref={honeypotRef}
+              type="text"
+              name="website"
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              defaultValue=""
+              className="absolute left-[-9999px] top-auto h-0 w-0 opacity-0"
             />
           </div>
         </>
