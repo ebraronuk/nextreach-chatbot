@@ -1,198 +1,326 @@
-# Development Roadmap — NextReach Chatbot
+# Geliştirme Yol Haritası — Genel Yapılış
 
-> Kalan zamanin saat-saat plani. Her gorev tick'lenebilir.
-> Su an: **iskelet hazir, kodlama baslamadi.**
-
----
-
-## Su Anki Durum (Bootstrap Tamam)
-
-- [x] Next.js 15 + TypeScript + Tailwind kuruldu
-- [x] Klasor yapisi (`src/app`, `src/components`, `src/lib`, `src/types`)
-- [x] Supabase + Gemini client iskeletleri yazildi
-- [x] Lead scoring algoritmasi yazildi (test edilmedi)
-- [x] Tipler tanimlandi (`Lead`, `ChatMessage`, `Volume`, `Timeline`)
-- [x] `.env.local` doldu, `.gitignore` korumada
-- [x] Supabase schema.sql hazir
-- [x] CLAUDE.md + README.md skeleton var
-- [x] docs/ icinde tasarim ve akis planlari yazildi
-
-**Hala bekleyen:** `npm install` calistirilmadi, Supabase tablolari olusturulmadi, GitHub repo'su acilmadi.
+> Bu doküman projenin **nasıl inşa edildiğini** özetler; bir status report değil,
+> aynı task'a benzer bir projeyi sıfırdan kurmaya niyetlenen birinin takip edebileceği
+> bir akış şeması olarak yazıldı.
+>
+> 6 saatlik bir B2B SaaS lead-qualification chatbot'unu (chat akışı + scoring +
+> persistence + admin paneli + deploy + dokümantasyon) tek developer ile bitirmenin
+> mantıklı sıralaması:
 
 ---
 
-## Faz 0 — Kurulum (HEMEN ŞIMDI, ~15 dk)
+## Faz 0 — Karar verme + hesap kurulumları (~30 dk)
 
-- [ ] `npm install` calistir
-- [ ] Supabase Dashboard → SQL Editor → `supabase/schema.sql` yapistir → Run
-- [ ] Supabase Table Editor → `leads` tablosunu gor (bos olmali)
-- [ ] `npm run dev` calistir, http://localhost:3000 acilsin
-- [ ] Sag alttaki "Bize Ulasin" butonu goruluyor mu? (placeholder modal acmali)
-- [ ] GitHub: yeni public repo `nextreach-chatbot` ac (README/license/gitignore EKLEME)
-- [ ] `git remote add origin <URL>` + ilk commit + `git push -u origin main`
-- [ ] Vercel → Import GitHub repo → tum env'leri Vercel'e kopyala → Deploy
-- [ ] Vercel canli URL'i README'ye yaz
+Kodlamadan önce halledilmesi gereken işler. Bunları orta zamanda araya sıkıştırmak
+sonradan acılı bug'a dönüşür.
 
-**Beklenen sure: 15-20 dk. Bittiginde "Faz 0 tamam" de.**
+- **Tech stack kararı**
+  - Framework, dil, DB, AI provider, hosting seçimleri — gerekçeli, README'ye
+    yazılabilir biçimde
+  - Bu projedeki seçimler: Next.js 15 App Router, TypeScript, Tailwind, Supabase
+    (Postgres), Gemini 2.5 Flash, Vercel
+- **Hesap açılışları**
+  - Supabase (proje + DB password)
+  - Google AI Studio (Gemini API key)
+  - GitHub repo (boş, README/license/gitignore eklemeden)
+  - Vercel (henüz deploy değil, sadece hesap hazır)
+- **Plan dokümanları**
+  - Konuşma akışı (chatbot ne soracak, hangi sırada, ne zaman "yeter")
+  - Karakter / ton kararı (chatbot'un kişiliği)
+  - Lead scoring formülü (hangi faktörler, hangi ağırlıklar)
+  - Admin paneli mockup (KPI + tablo + detay)
+  - Spam savunma stratejisi (kaç katmanlı, hangi katmanlar)
 
----
-
-## Faz 1 — Chatbot Engine (90 dk)
-
-> En kritik faz. Kullaniciya gosterilecek esas ozellik.
-
-### 1.1 Chat state ve UI (30 dk)
-- [ ] `src/components/chatbot/Chatbot.tsx`'i gercek mesaj listesi ile guncelle
-- [ ] `messages` state'i: `Array<{role, content, timestamp, options?}>`
-- [ ] `step` state'i: greeting | identity | qualification | timeline | summary | submitted
-- [ ] `leadData` state'i: toplanan tum veriler
-- [ ] Mesaj balonlari (design-system'deki stillerle)
-- [ ] Quick reply chip butonlari
-- [ ] "Aylin yaziyor..." typing indicator (3 nokta pulse)
-- [ ] Scroll: yeni mesaj geldikce otomatik dibe in
-- [ ] Modal animasyonu: `animate-slide-up`
-- [ ] Escape ile kapanma + odak yonetimi (a11y)
-- [ ] Mobile: tam ekran bottom sheet
-- [ ] localStorage: konusma kaybolmasin (refresh direncli)
-
-### 1.2 Conversation engine (40 dk)
-- [ ] `src/lib/conversation/flow.ts` — step gecislerini yoneten machine
-- [ ] Validasyon: isim, sirket, email (Zod)
-- [ ] Kurumsal email kontrolu + uyari mesaji
-- [ ] "Atla" / "Daha sonra" yanitlarini handle et
-- [ ] Reddedis senaryolari (1. red yumusak yeniden iste, 2. red kabul)
-
-### 1.3 Gemini entegrasyonu (20 dk)
-- [ ] `POST /api/chat` route'unu calistir
-- [ ] Edge runtime + streaming response
-- [ ] System prompt'a Aylin persona'sini koy
-- [ ] Konusma gecmisini Gemini'ye gonder, akilli yanit al
-- [ ] Off-topic / fiyat sorularinda Gemini'nin uygun cevap vermesi
-
-**Faz 1 bitiminde:** ziyaretci sohbete girer, 5 adimi tamamlar, ekranda "Talebinizi olusturuyorum..." mesaji goruyor (henuz DB'ye yazilmiyor).
+> **Kritik prensip:** kararları kodlamadan önce yazıya dök. Sonradan değiştirmek
+> kolay; başlamadan önce vermek çok daha hızlı.
 
 ---
 
-## Faz 2 — Lead Save + Scoring + AI Summary (45 dk)
+## Faz 1 — Proje iskeleti (~45 dk)
 
-### 2.1 Submit endpoint (20 dk)
-- [ ] `POST /api/leads` Zod ile valide eder
-- [ ] Honeypot kontrolu (dolu ise sessiz reddet)
-- [ ] Rate limit (IP basina 10dk/3 submission, in-memory Map yeter)
-- [ ] Lead scoring hesapla (`scoreLead()` cagir)
-- [ ] Supabase'e yaz (`getServerClient()`)
-- [ ] Hata: client'a 500 ama log'da gercek hata
+Boş repodan çalışan-ama-içi-yok bir Next.js uygulamasına kadar:
 
-### 2.2 AI ozet (15 dk)
-- [ ] Submit'ten sonra Gemini'ye 2. cagri: ozet uret
-- [ ] Ozeti `ai_summary` kolonuna yaz (async, lead kaydetmeyi bloklamadan)
-
-### 2.3 Hot lead webhook (10 dk)
-- [ ] Score >= 80 ise `HOT_LEAD_WEBHOOK_URL`'ye POST (varsa)
-- [ ] Payload: `{ name, company, email, score, summary, url: /admin?key=... }`
-
-**Faz 2 bitiminde:** ziyaretci konusmayi tamamlar, Supabase'te yeni lead satiri olusur.
-
----
-
-## Faz 3 — Admin View (60 dk)
-
-### 3.1 Tablo (30 dk)
-- [ ] `src/app/admin/page.tsx` — Server Component, `getServerClient` ile lead'leri cek
-- [ ] Tablo: skor / isim+sirket / email / niyet / zaman / status / created_at
-- [ ] Skor rozetleri (Hot kirmizi / Warm sari / Cold gri)
-- [ ] Sort: skor desc (default)
-- [ ] Bos durum: "Henuz lead yok"
-
-### 3.2 Detay panel (20 dk)
-- [ ] Satira tikla → side drawer acilir
-- [ ] AI ozeti en ustte
-- [ ] Skor breakdown (her +/- madde)
-- [ ] Tam transkript (mesaj balonlariyla)
-- [ ] Status degistir (new → contacted → qualified / rejected)
-- [ ] "Tum bilgileri kopyala" butonu
-
-### 3.3 Filtre + realtime (10 dk)
-- [ ] Filtre: status, temperature, tarih araligi
-- [ ] Supabase Realtime: yeni lead satiri animasyonla belirir
-- [ ] Toplam sayilar ust kismda (3 Hot / 5 Warm / 12 Cold)
-
-**Faz 3 bitiminde:** /admin?key=... ekraninda lead'ler listeleniyor, detay aciliyor.
+- `package.json`, `tsconfig.json`, `tailwind.config`, `postcss.config`,
+  `next.config`, `.eslintrc.json` — config dosyalarını manuel yaz veya
+  `create-next-app` ile başlat
+- `.env.example` + `.env.local` (gizli) — bütün env anahtarları placeholder'lı
+- `.gitignore` — `.env*.local`, `node_modules`, `.next`, `.vercel`, `.claude/`
+- Klasör yapısı:
+  ```
+  src/
+    app/          → routes (layout, page, api/, admin/)
+    components/   → chatbot, admin, landing
+    lib/          → ai, db, conversation, scoring, api, env, utils, analytics
+    constants/    → magic numbers, label sözlükleri, email domains
+    types/        → paylaşılan tipler (Lead, ChatMessage)
+  supabase/
+    schema.sql    → tablo + indeksler + RLS
+  docs/           → planlama dosyaları
+  ```
+- Root layout (font + locale + OG metadata) ve placeholder landing/admin sayfaları
+- `npm run dev` ile sayfanın açıldığını doğrula (boş bile olsa)
 
 ---
 
-## Faz 4 — Landing Page (30 dk)
+## Faz 2 — Veritabanı şeması + güvenlik temelleri (~30 dk)
 
-- [ ] `src/app/page.tsx` — gercek landing
-- [ ] Header: NextReach logo + nav (basit)
-- [ ] Hero: baslik + alt baslik + 2 CTA ("Bize Ulasin" + "Daha fazla bilgi")
-- [ ] "Bize Ulasin" tikla → Chatbot acil (event veya state lift)
-- [ ] Sosyal kanit bolumu: 3-4 placeholder logo / istatistik
-- [ ] "Neden NextReach?" 3 sutun ozellik karti
-- [ ] Footer (basit, copyright + kurum bilgisi)
-- [ ] Tum bilesenler responsive
+Backend'in temeli. Bunu erken yapmak veri akışını test ederken işi kolaylaştırır.
 
-**Faz 4 bitiminde:** profesyonel gorunen bir landing var, chatbot orada.
+- **Supabase tablosu:** `leads`
+  - Kimlik (name, company, email, phone)
+  - Kalifikasyon (intent, volume, current_tool, timeline, preferred_contact_time)
+  - Skoring (score, temperature, score_breakdown — jsonb)
+  - Konuşma (transcript jsonb, conversation_duration_sec)
+  - Audit (ip_hash, user_agent, honeypot_filled)
+  - Workflow (status: new/contacted/qualified/rejected, created_at)
+- **CHECK constraint'ler** kabul edilen değerler için (intent, volume, timeline,
+  temperature, status)
+- **Indeksler:** created_at desc, score desc, temperature
+- **RLS aktif:** sadece service_role yazabilir; anon erişim yok
+- **Realtime publication** ekle (admin'de canlı bildirim için altyapı)
+- Şemayı Supabase Dashboard → SQL Editor'da çalıştır, Table Editor'da görü onayla
 
----
-
-## Faz 5 — Polish + Spam + Deploy Refresh (30 dk)
-
-- [ ] Error boundary (Next.js `error.tsx`)
-- [ ] Loading skeleton'lar
-- [ ] Honeypot input formda gizli olarak (display:none, tabindex=-1)
-- [ ] Disposable email domain blacklist (kisa liste yeter)
-- [ ] Mobile test (Chrome DevTools cihazi)
-- [ ] Vercel'e push, deploy refresh
-- [ ] Canli URL'de tum akis end-to-end test
+> **Uyarı:** ilk versiyonda admin realtime için anon SELECT policy verirsen
+> Supabase URL + anon key ile herkes leadleri çekebilir. Sonradan migration ile
+> kaldır (bu projede `migration-001-tighten-rls.sql`).
 
 ---
 
-## Faz 6 — README Final (15 dk, ÇOK ÖNEMLI)
+## Faz 3 — Tipler, scoring, validation (~30 dk)
 
-- [ ] Demo URL'i ekle
-- [ ] Ekran goruntuleri / GIF (chatbot acik, admin)
-- [ ] "Yapildi" listesi guncel
-- [ ] "Yapilamadi" listesi: yumusak ama net
-- [ ] "Daha fazla zaman olsaydi" bolumu (vizyon!)
-- [ ] PRD'deki muglak yerlerin yorumlarini detaylandir
-- [ ] Toplam sure (commit history ile ortusen)
+Domain logic katmanı — UI'dan ve route'lardan bağımsız test edilebilir kalmalı.
 
----
-
-## Toplam Zaman Hesabi
-
-| Faz | Sure |
-|---|---|
-| Faz 0 (kurulum) | 15-20 dk |
-| Faz 1 (chatbot) | 90 dk |
-| Faz 2 (save + score) | 45 dk |
-| Faz 3 (admin) | 60 dk |
-| Faz 4 (landing) | 30 dk |
-| Faz 5 (polish + deploy) | 30 dk |
-| Faz 6 (README) | 15 dk |
-| **Toplam** | **~285 dk = 4h 45dk** |
-
-> Buffer'in var. Yine de **bitmek bilmeyen detay** kovalamayi birak — "perfect is enemy of done".
+- **Tipler:** `Lead`, `LeadInput`, `ChatMessage`, `Volume`, `Timeline`, `Intent`
+- **Lead scoring:** 0-100 arası, `score_breakdown` ile her +/- maddeyi sakla
+  - Kurumsal e-posta +25
+  - Sipariş hacmi (5k+ veya 5k-50k için +30, 500-5k için +15)
+  - Zaman çizelgesi (this-week / this-month için +25)
+  - Bilinen rakip arac +20 (özel çözüm +10)
+  - Kısa konuşma -15
+  - 80+ Hot, 50-79 Warm, <50 Cold
+- **Validation (Zod):** name, company, email, currentTool için min/max + format
+- **Anlam validasyonu (Türkçe sezgisel):**
+  - `isPureGreeting()` — sadece "selam/merhaba/naber" yakalar
+  - `isDismissive()` — "naber kız" gibi argo hitap
+  - `looksLikeRefusal()` — "olmaz/yok/vermem"
+  - `looksLikeQuestion()` — soru kalıpları + identity soruları + infix kalıplar
+  - `isJunkInput()` — emoji-only, anlamsız
+- **Unit test'ler** (Vitest) — bu fonksiyonların davranışını sabitle
 
 ---
 
-## Risk Listesi
+## Faz 4 — External service istemcileri (~30 dk)
 
-| Risk | Erken uyari | Plan B |
+Supabase ve Gemini ile köprüler. Server-only kodu client'a sızdırmamak için ayrı
+client'lar.
+
+- **Supabase clients:**
+  - `getBrowserClient()` — anon key, RLS uygulanır, sadece browser
+  - `getServerClient()` — service_role key, RLS bypass, sadece server route'larda
+- **Env validation (Zod):**
+  - `clientEnv` — module load'da parse, sadece `NEXT_PUBLIC_*`
+  - `getServerEnv()` — lazy + cached, server-only
+  - Boş string'leri undefined'a çeviren `optionalUrl` preprocess (`.env`'de
+    `KEY=` boş bırakılırsa Zod `.url().optional()` patlar — bu yüzden gerekli)
+- **Gemini client:**
+  - Tek export: `getGeminiClient(opts?)` — `systemInstruction` ile step-aware ek
+    talimat verilebilir
+  - `SYSTEM_PROMPT` sabiti — chatbot karakteri, ton, yasaklar, prompt injection
+    savunması burada
+- **AI summary fonksiyonu** (ayrı dosya) — chat akışından bağımsız, lead için
+  2-cümlelik özet üretir
+
+---
+
+## Faz 5 — Conversation engine (~90 dk, en kritik faz)
+
+Chatbot'un beyni. Bu fazın doğru kurulması projenin geri kalanını kolaylaştırır.
+
+- **State machine** (`src/lib/conversation/state-machine.ts`)
+  - Step tipleri: `greeting → identity_name → identity_company → identity_email →
+    identity_email_confirm_personal? → qualification_volume → qualification_tool →
+    timeline → summary → submitted`
+  - `handleUserInput(step, input)` her step için 4 sonuçtan biri döner:
+    `advance` (sonraki step), `branch` (özel alt step), `clarify` (aynı step + bot
+    mesaj), `submit` (akış sonu), `fallback` (Gemini'ye git)
+- **Scripted mesajlar** (`scripts.ts`)
+  - Her step için bot mesajı + opsiyonel quick reply chip'leri
+  - Quick reply payload'ları sabit (`PAYLOAD.CONFIRM`, `PAYLOAD.SKIP`, vs.)
+- **Storage** (`storage.ts`)
+  - localStorage ile konuşma durumunu sakla — refresh dirençli
+  - Schema versioning ile ileride değişiklik yapılınca eski state korunmasın
+- **Chatbot UI komponenti** (`Chatbot.tsx`)
+  - Modal aç/kapat (FAB + Escape + backdrop click)
+  - Focus trap + aria-live + klavye navigasyonu
+  - Typing indicator (3 nokta pulse), mesaj balonları, quick replies
+  - Honeypot input (gizli, bot dolduruyorsa server sessiz reddet)
+  - State'i `useRef`'te de tut (stale closure'a karşı)
+- **`/api/chat` endpoint'i** (Edge runtime)
+  - Sadece off-script durumlarda çağrılır
+  - Streaming response (Gemini sendMessageStream)
+  - Step-aware `systemInstruction` ile o anki bağlamı Gemini'ye söyle
+- **ProactiveBubble** komponenti
+  - Landing'e girince 4 saniye sonra Aylin avatarı + davet mesajı
+  - localStorage ile bir kez kapatılırsa tekrar çıkmaz
+  - Mobilde gizli (FAB zaten yeterince dikkat çekiyor)
+
+---
+
+## Faz 6 — Backend persistence + AI summary (~45 dk)
+
+Konuşma bittiğinde lead'i kalıcılaştırma.
+
+- **`POST /api/leads`** pipeline (Node runtime):
+  1. Zod ile body parse (`safeParse`)
+  2. Honeypot dolu ise 200 dön ama yazma (sessiz reject)
+  3. IP hash + rate limit (in-memory Map, IP başına 10 dk / 3 submission)
+  4. `scoreLead()` ile skor + breakdown + temperature hesapla
+  5. Supabase'e insert (service_role ile, RLS bypass)
+  6. **Async** AI özet üret + UPDATE (fire-and-forget — insert'i bloklamasın)
+  7. **Async** hot lead webhook (skor >= 80 ise `HOT_LEAD_WEBHOOK_URL`'e POST)
+- **`GET /api/leads?key=`** — admin için filtre destekli liste
+- **`PATCH /api/leads?key=`** — lead status'unu güncelle (workflow için)
+- Client tarafında `submitLead()` köprüsü — Chatbot'tan API'ye veri akışı
+
+---
+
+## Faz 7 — Admin paneli (~60 dk)
+
+Satış ekibinin günlük çalışacağı yer.
+
+- **`/admin?key=<secret>` korumalı sayfa** (Server Component)
+  - Yanlış key → ana sayfaya redirect
+  - `getServerClient()` ile lead'leri çek
+- **KPI kartlar** — 3 sıcaklık (Hot/Warm/Cold) için sayım
+- **FiltersBar** — sıcaklık, status, tarih aralığı
+- **LeadsTable**
+  - Skor sırasıyla (default), renkli rozet (kırmızı/sarı/gri)
+  - Mobile'da kart varyantına düşüş
+  - Satıra tıkla → detay drawer açılır
+- **LeadDetailPanel** (drawer)
+  - **AI özet** en üstte (2 cümle — "kim, neden, neden şimdi")
+  - **Skor breakdown** her +/- maddesi
+  - **Tam transkript** mesaj balonlarıyla
+  - **Status güncelle** select (new → contacted → qualified → rejected)
+  - **Kopyala** butonu (lead bilgilerini panoya)
+
+---
+
+## Faz 8 — Landing page (~45 dk)
+
+Chatbot'u doğal hisset­tirecek bağlam.
+
+- **Header** — sticky, minimal nav, CTA
+- **Hero** — eyebrow + büyük başlık + 2 CTA + alt satır risk-reversal mesajı
+  ("Kart bilgisi istemiyoruz · 5 dakikada kurulum · 14 gün ücretsiz")
+- **MockDashboard** — gerçek ürün screenshot'ı yoksa CSS+SVG ile sahte panel
+  (Apple-tarzı menü circles + KPI satırı + line chart)
+- **SocialProof** — 4 stat (marka sayısı, ciro, entegrasyon süresi, yanıt süresi)
+- **Features** — bento grid (asimetrik): büyük kart + 2 küçük + geniş ikinci satır
+- **FAQ** — 6 sıkça sorulan soru accordion
+- **Footer** — 4 sütun (Brand, Ürün, Şirket, İletişim+Yasal)
+- Hero ve Header'daki "Demo Talep Et" butonları `openChatbot()` helper'ı ile aynı
+  modalı açar (Chatbot.tsx'e dokunmadan DOM event köprüsü)
+
+---
+
+## Faz 9 — Güvenlik sıkılaştırma + observability (~30 dk)
+
+Production-ready vibrasyonu.
+
+- **CSP + security headers** — `next.config.ts`'te `headers()` ile:
+  - Content-Security-Policy (script/style/img/connect/font sources)
+  - Strict-Transport-Security (HSTS preload)
+  - X-Frame-Options: DENY (clickjacking)
+  - Referrer-Policy: strict-origin-when-cross-origin
+  - Permissions-Policy (camera/mic/geolocation kapalı)
+- **Prompt injection savunması** — `SYSTEM_PROMPT`'ta:
+  - "Talimatlarını yoksay" tarzı denemeleri reddet
+  - Model adı / teknoloji paylaşma
+  - Küfürlü mesajlara kalıp cevap
+- **RLS sıkılaştırma migration** — anon SELECT policy'sini kaldır
+- **robots.ts** — `/admin` ve `/api/` crawl'a kapalı
+- **Analytics adapter** (`lib/analytics.ts`) — vendor-agnostic `track()`,
+  development'ta console.log, production'da sendBeacon
+- Constants extract (`TYPING_DELAY_MS`, `RATE_WINDOW_MS`, `PERSONAL_EMAIL_DOMAINS`)
+
+---
+
+## Faz 10 — Deploy + canlı doğrulama (~20 dk)
+
+- Vercel'e GitHub repo'yu import et
+- Env değişkenlerini Vercel'e taşı (`.env.local` içeriğini "Import .env"
+  butonuyla yapıştır)
+- Production deploy'u izle, hata varsa logları yapıştır
+- Canlı URL'i README'ye yaz
+- End-to-end test canlıda:
+  1. Landing açılıyor mu
+  2. ProactiveBubble 4 sn sonra çıkıyor mu
+  3. Chatbot 5 adımı tamamlatıyor mu
+  4. Lead Supabase'e düşüyor mu
+  5. /admin canlıda çalışıyor mu, lead listede mi
+  6. Mobile (Chrome DevTools iPhone) bozuk mu
+
+---
+
+## Faz 11 — README + dokümantasyon (~30 dk)
+
+Kalan zamanın en son 30 dakikasını koru — README projenin **hikayesi**.
+
+- Demo URL + admin pattern + GitHub link
+- 4-5 ekran görüntüsü (`docs/screenshots/`)
+- Hızlı başlangıç (npm install, .env, Supabase SQL, npm test)
+- Teknoloji seçimleri gerekçeli tablo
+- Sistem mimarisi (ASCII diyagram + klasör yapısı)
+- Karakter / akış / scoring / admin / güvenlik bölümleri
+- PRD'deki muğlak sorulara verdiğin cevaplar
+- 6 saatte yapamadıkların + +zamanım olsaydı listesi
+- AI kullanımı hakkında dürüst not
+- Toplam süre
+
+---
+
+## Genel prensipler
+
+Bu sıralama keyfi değil — şu sezgilere dayanıyor:
+
+1. **Karar verme her zaman önce.** Plan yapmadan kod yazmak 2 katı zaman alır.
+2. **Schema önce, kod sonra.** Tablo şemasını sonradan değiştirmek migration ağrısı.
+3. **Domain logic UI'dan önce.** Scoring/validation gibi pure fonksiyonları
+   ayrı dosyaya yazıp test et — UI değişse bile bozulmazlar.
+4. **Conversation engine projenin merkezi.** En çok zaman ona ayır, geri kalanı
+   onun etrafına bağla.
+5. **Backend persistence chatbot'tan sonra.** Önce konuşma çalışsın, sonra kaydet.
+6. **Admin panelini lead'lerle test et.** Boş tablo görmek yerine fake data
+   gönder, gerçek UX'i değerlendir.
+7. **Landing en sona.** Tasarım iteratif, fonksiyon zorunlu. Boş kabuğun
+   screenshot'ını alamazsın.
+8. **Güvenlik sıkılaştırması temiz iş yapıldıktan sonra.** Önce çalışsın, sonra
+   sertleştir.
+9. **Deploy'u 2. saatte değil 5. saatte yap.** Lokalde çalışan kod prod'da
+   patlayabilir; zaman gerek.
+10. **README için kutsal son 30 dakika.** Bu projenin hikayesi — atlama.
+
+---
+
+## Zaman dağılımı özet
+
+| Faz | Süre | Sonuç |
 |---|---|---|
-| Gemini API yavas / down | 2. saat ortasinda fark et | Kural-tabanli fallback yanitlar |
-| Supabase RLS hatasi | Ilk yazma denemesi 400/401 | Service_role anahtarini kontrol et |
-| Vercel deploy basarisiz | 5. saat | `.env`'i Vercel'e kopyalamayi unutma |
-| TS tip hatasi (geli��im sirasinda) | `npm run typecheck` ile yakala | `// @ts-expect-error` kullanma, duzelt |
-| Mobile bozuk | Faz 4 sonu | DevTools'ta `iPhone 12 Pro` simulator'unde test |
+| 0 — Karar + hesap | 30 dk | Plan dosyaları + env hazır |
+| 1 — Proje iskeleti | 45 dk | `npm run dev` boş kabukla açılıyor |
+| 2 — DB şema + RLS | 30 dk | Supabase'te leads tablosu |
+| 3 — Tip + scoring + validation | 30 dk | Pure fonksiyonlar + unit test |
+| 4 — External clients | 30 dk | Supabase + Gemini çağrılabilir |
+| 5 — Conversation engine | 90 dk | Çalışan chatbot |
+| 6 — Backend persistence | 45 dk | Lead Supabase'e düşüyor |
+| 7 — Admin paneli | 60 dk | Tablo + drawer + filtre |
+| 8 — Landing page | 45 dk | Profesyonel landing |
+| 9 — Güvenlik + observability | 30 dk | CSP, prompt injection, analytics |
+| 10 — Deploy + canlı doğrulama | 20 dk | Vercel'de yaşıyor |
+| 11 — README + dokümantasyon | 30 dk | Hikaye anlatımı |
+| **Toplam** | **~7 saat** | |
 
----
-
-## Tavsiyeler
-
-1. **Her faz sonu commit at.** `git log` hikayen.
-2. **`npm run dev` her zaman acik tut.** Hot reload arkadasin.
-3. **Bug'a takilirsan max 10 dk ugras**, sonra "todo: fix later" yaz, devam.
-4. **Polish'i sona birak.** Once isleyen sonra guzel.
-5. **README icin son 15 dakikayi koru.** Onceki commit'lerden notlar topla.
+> 6 saat hard limit için Faz 1 ve Faz 8 biraz kısaltılabilir, ya da Faz 9'un
+> bazı maddeleri "+zamanım olsaydı" listesine bırakılabilir.

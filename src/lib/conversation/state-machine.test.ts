@@ -34,6 +34,21 @@ describe("greeting step", () => {
     expect(r.kind).toBe("fallback");
   });
 
+  it("kimlik sorusu ('insan misin ai misin') fallback'e gider", () => {
+    const r = handleUserInput("greeting", { text: "insan misin ai misin" });
+    expect(r.kind).toBe("fallback");
+  });
+
+  it("'sen kimsin' fallback'e gider", () => {
+    const r = handleUserInput("greeting", { text: "sen kimsin" });
+    expect(r.kind).toBe("fallback");
+  });
+
+  it("'pazaryeri destegi var mi' fallback'e gider", () => {
+    const r = handleUserInput("greeting", { text: "Pazaryeri destegi var mi" });
+    expect(r.kind).toBe("fallback");
+  });
+
   it("anlamli ama niyetsiz metin 'other' intent ile advance eder", () => {
     const r = handleUserInput("greeting", { text: "Bilgi almak istiyorum" });
     expect(r.kind).toBe("advance");

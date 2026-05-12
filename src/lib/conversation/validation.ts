@@ -107,7 +107,14 @@ const REFUSAL_WORDS = [
   "boş ver",
 ];
 
-/** Soru kaliplari — Gemini fallback'e yonlendirme. */
+/**
+ * Soru kaliplari (basta gecen).
+ *
+ * NOT: "demo", "fiyat", "destek" gibi konu-isimleri eskiden burada vardi —
+ * "Demo almak istiyorum" gibi duz cumleler yanlislikla soru sayiliyordu.
+ * Bunlari INFIX_KEYWORDS'e tasidik; soru olmasi icin gercekten soru-isareti
+ * veya soru-kelimesi gerekiyor.
+ */
 const QUESTION_STARTERS = [
   "ne ",
   "ne kadar",
@@ -121,15 +128,57 @@ const QUESTION_STARTERS = [
   "kim ",
   "kimle",
   "kime",
+  "kimsin",
+  "nesin",
+  "sen ",
+  "siz ",
+];
+
+/**
+ * Kimlik / "AI mısın?" tarzı sorular.
+ * Bu kaliplar genelde soru isaretsiz gelir, QUESTION_STARTERS'a takilmaz.
+ * Ornek: "insan misin ai misin", "bot musun", "yapay zeka misin"
+ *
+ * Turkce unlu uyumu: misin / mısın / musun / müsün — hepsini yakaliyoruz.
+ */
+const IDENTITY_QUESTION_PATTERNS = [
+  /\b(insan|ai|yapay\s*zek[aâ]|bot|robot|chat\s*bot|asistan|gercek|gerçek|canl[ıi])\s*m[ıiuü]?s[ıiuü]n/i,
+  /\bsen\s+(kim|ne|kac|kaç)\b/i,
+  /\b(kimsin|nesin|kac yasin|kaç yaşın)\b/i,
+];
+
+/**
+ * Cumle icinde herhangi bir yerde gecince soru sayilan kaliplar.
+ * Ornek: "Pazaryeri destegi var mi", "Shopify ile uyumlu mu", "Aylik ne kadar tutar"
+ *
+ * Konu-isimleri ("fiyat", "demo", "destek") tek baslarina yetersiz — ancak
+ * yaninda soru-kelimesi olursa anlamli. Bu yuzden burada sadece soru bagi
+ * iceren kaliplar var.
+ */
+const QUESTION_INFIX_KEYWORDS = [
+  "var mı",
+  "var mi",
+  "olur mu",
+  "uyumlu mu",
+  "destekliyor mu",
+  "calisiyor mu",
+  "çalışıyor mu",
+  "yapabilir mi",
+  "yapiyor mu",
+  "yapıyor mu",
+  "mumkun mu",
+  "mümkün mü",
+  "ne kadar",
+  "nasil",
+  "nasıl",
+  "kaç tl",
+  "kac tl",
+  "kaç para",
+  "kac para",
   "fiyat",
   "ucret",
   "ücret",
   "maliyet",
-  "demo ",
-  "destek",
-  "entegrasyon",
-  "ozellik",
-  "özellik",
 ];
 
 /** Anlamli kelime icermeyen "junk" girdiler (sadece emoji, noktalama, vb.) */
@@ -139,6 +188,101 @@ function isJunkInput(text: string): boolean {
   // En az 2 harfli bir kelime var mi?
   const hasMeaningfulWord = /[a-zA-Zçğıöşüâîûéè]{2,}/.test(trimmed);
   return !hasMeaningfulWord;
+}
+
+/**
+ * Klavyede rastgele tuslayarak yazilan "isim gibi gorunen ama anlamsiz" metin tespiti.
+ *
+ * Yontem: Turkce fonetik ozellikler.
+ *  - Turkce sesli harfler ~%40 oraninda gecer; %15'in altinda anormal.
+ *  - Turkcede maks 3 ardisik sessiz harf gozlenir ("stres", "spor"); 5+ neredeyse imkansiz.
+ *
+ * "Ayşe", "Çelik", "Müğla-Köyceğiz", "Zeynep Yıldız" gibi gercek isimleri
+ * yanlis pozitifle yakalamaz; "hgdsghsdghdsü", "jhfhg", "asdfgh" gibi tuş
+ * basisi yakalanir.
+ */
+const TURKISH_VOWELS = "aeıioöuüâîû";
+const LETTER_RE = /[a-zçğıöşüâîû]/;
+
+function vowelRatio(text: string): number {
+  const lower = text.toLocaleLowerCase("tr-TR");
+  let vowels = 0;
+  let letters = 0;
+  for (const ch of lower) {
+    if (LETTER_RE.test(ch)) {
+      letters++;
+      if (TURKISH_VOWELS.includes(ch)) vowels++;
+    }
+  }
+  return letters === 0 ? 0 : vowels / letters;
+}
+
+function maxConsonantRun(text: string): number {
+  const lower = text.toLocaleLowerCase("tr-TR");
+  let max = 0;
+  let current = 0;
+  for (const ch of lower) {
+    if (LETTER_RE.test(ch)) {
+      if (TURKISH_VOWELS.includes(ch)) {
+        if (current > max) max = current;
+        current = 0;
+      } else {
+        current++;
+      }
+    } else {
+      // boşluk / noktalama / rakam → run kesilir
+      if (current > max) max = current;
+      current = 0;
+    }
+  }
+  return current > max ? current : max;
+}
+
+/**
+ * Klavyede ardisik tuslar — "qwerty", "asdfgh", "zxcvbn" gibi.
+ * Fonetik check bunu yakalamaz cunku e/u/i gibi sesliler var; ama 5+ harf
+ * tek bir klavye satirindan geliyorsa neredeyse kesin tus basisi.
+ */
+const KEYBOARD_ROWS = [
+  "qwertyuıopğü",
+  "asdfghjklşi",
+  "zxcvbnmöç",
+];
+
+function maxKeyboardRowRun(text: string): number {
+  const lower = text.toLocaleLowerCase("tr-TR");
+  let overall = 0;
+  for (const row of KEYBOARD_ROWS) {
+    let current = 0;
+    for (const ch of lower) {
+      if (row.includes(ch)) {
+        current++;
+        if (current > overall) overall = current;
+      } else {
+        current = 0;
+      }
+    }
+  }
+  return overall;
+}
+
+export function looksLikeGibberish(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 3) return false; // cok kisa — baska katmanlar zaten ele aliyor
+
+  const ratio = vowelRatio(trimmed);
+  const maxRun = maxConsonantRun(trimmed);
+
+  // Hic sesli harf yok → "ksdf" gibi
+  if (ratio === 0) return true;
+  // Cok dusuk sesli orani → "hgdsghsdghdsü" gibi
+  if (ratio < 0.15) return true;
+  // Imkansiz uzun sessiz dizi → "jklmnpqr" gibi
+  if (maxRun >= 5) return true;
+  // Tek klavye satirinda 5+ ardisik harf → "qwertyu", "asdfgh" gibi
+  if (maxKeyboardRowRun(trimmed) >= 5) return true;
+
+  return false;
 }
 
 export function isPureGreeting(text: string): boolean {
@@ -167,7 +311,10 @@ export function looksLikeQuestion(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (t.length === 0) return false;
   if (t.endsWith("?")) return true;
-  return QUESTION_STARTERS.some((s) => t.startsWith(s));
+  if (QUESTION_STARTERS.some((s) => t.startsWith(s))) return true;
+  if (QUESTION_INFIX_KEYWORDS.some((kw) => t.includes(kw))) return true;
+  if (IDENTITY_QUESTION_PATTERNS.some((re) => re.test(t))) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +343,14 @@ export function parseName(input: string): ParseResult<string> {
         "İletişim talebinizi oluşturabilmem için sadece adınız yeterli. Soyad gerekmiyor — istediğiniz takma adı bile kullanabilirsiniz.",
     };
   }
+  if (looksLikeGibberish(trimmed)) {
+    return {
+      ok: false,
+      reason: "junk",
+      error:
+        "Adınızı tam yazar mısınız? Satış ekibimizin size doğru hitap edebilmesi için.",
+    };
+  }
 
   // Format katmani
   const r = nameSchema.safeParse(trimmed);
@@ -221,6 +376,14 @@ export function parseCompany(input: string): ParseResult<string> {
       reason: "refusal",
       error:
         "Şirket bilgisi satış ekibimizin size daha iyi yardımcı olması için. Bağımsız çalışıyorsanız 'Bireysel' yazabilirsiniz.",
+    };
+  }
+  if (looksLikeGibberish(trimmed)) {
+    return {
+      ok: false,
+      reason: "junk",
+      error:
+        "Şirket adınızı doğru kaydedebilmemiz için tam yazar mısınız? Bağımsız çalışıyorsanız 'Bireysel' yeterli.",
     };
   }
 
@@ -267,6 +430,13 @@ export function parseCurrentTool(input: string): ParseResult<string> {
       ok: true,
       // Refusal -> kullanmadiklarini varsay
       value: "Belirtmek istemedi",
+    };
+  }
+  if (looksLikeGibberish(trimmed)) {
+    return {
+      ok: false,
+      reason: "junk",
+      error: "Aracın adını yazar mısınız? Örnek: 'Shopify Analytics', 'Excel'.",
     };
   }
 

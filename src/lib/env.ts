@@ -9,11 +9,22 @@
  * NEXT_PUBLIC_* olmayan env'leri inline'lamiyor. Build-time parse edilirse
  * undefined'larla crash olurdu; ilk gercek server cagrisinda parse ediyoruz.
  *
- * Hata sirasinda issue listesini logladiktan sonra detayli hata firlatiyoruz —
- * boylece "X env tanimli degil" yerine "NEXT_PUBLIC_SUPABASE_URL: Required"
- * gibi net mesaj alirsiniz.
+ * Onemli: Next.js .env.local'daki "VAR=" satirini bos string ("") olarak okur.
+ * Zod'un .optional() sadece undefined'i kabul eder; bos string .url() kontrolunden
+ * geceler. Bu yuzden tum optional URL alanlarini preprocess ile bos -> undefined
+ * cevriliyor.
  */
 import { z } from "zod";
+
+/**
+ * Bos string veya bos kelimeli string'leri undefined'a cevirir.
+ * .env.local'da "HOT_LEAD_WEBHOOK_URL=" satiri "" olarak okunur — biz bunu
+ * "tanimlanmamis" olarak yorumluyoruz.
+ */
+const emptyToUndefined = (v: unknown): unknown =>
+  typeof v === "string" && v.trim() === "" ? undefined : v;
+
+const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
 
 // ---------------------------------------------------------------------------
 // Client env — module load'da parse, NEXT_PUBLIC_* yalnizca
@@ -21,8 +32,8 @@ import { z } from "zod";
 const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  NEXT_PUBLIC_APP_URL: z.string().url().optional(),
-  NEXT_PUBLIC_ANALYTICS_BEACON_URL: z.string().url().optional(),
+  NEXT_PUBLIC_APP_URL: optionalUrl,
+  NEXT_PUBLIC_ANALYTICS_BEACON_URL: optionalUrl,
 });
 
 function parseClient(): z.infer<typeof clientSchema> {
@@ -33,9 +44,16 @@ function parseClient(): z.infer<typeof clientSchema> {
     NEXT_PUBLIC_ANALYTICS_BEACON_URL: process.env.NEXT_PUBLIC_ANALYTICS_BEACON_URL,
   });
   if (!result.success) {
-    console.error("[env] client env validation failed", result.error.flatten().fieldErrors);
+    const flat = result.error.flatten();
+    console.error("[env] client env validation failed", {
+      fieldErrors: flat.fieldErrors,
+      formErrors: flat.formErrors,
+    });
     throw new Error(
-      `Client env validation failed: ${JSON.stringify(result.error.flatten().fieldErrors)}`,
+      `Client env validation failed: ${JSON.stringify({
+        fieldErrors: flat.fieldErrors,
+        formErrors: flat.formErrors,
+      })}`,
     );
   }
   return result.data;
@@ -51,7 +69,7 @@ const serverSchema = clientSchema.extend({
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().min(1).default("gemini-2.5-flash"),
   ADMIN_SECRET_KEY: z.string().min(8, "ADMIN_SECRET_KEY en az 8 karakter olmali"),
-  HOT_LEAD_WEBHOOK_URL: z.string().url().optional(),
+  HOT_LEAD_WEBHOOK_URL: optionalUrl,
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
@@ -66,9 +84,16 @@ export function getServerEnv(): ServerEnv {
 
   const result = serverSchema.safeParse(process.env);
   if (!result.success) {
-    console.error("[env] server env validation failed", result.error.flatten().fieldErrors);
+    const flat = result.error.flatten();
+    console.error("[env] server env validation failed", {
+      fieldErrors: flat.fieldErrors,
+      formErrors: flat.formErrors,
+    });
     throw new Error(
-      `Server env validation failed: ${JSON.stringify(result.error.flatten().fieldErrors)}`,
+      `Server env validation failed: ${JSON.stringify({
+        fieldErrors: flat.fieldErrors,
+        formErrors: flat.formErrors,
+      })}`,
     );
   }
   cachedServerEnv = result.data;

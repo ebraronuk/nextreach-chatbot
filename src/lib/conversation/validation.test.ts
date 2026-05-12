@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDismissive,
   isPureGreeting,
+  looksLikeGibberish,
   looksLikeQuestion,
   looksLikeRefusal,
   parseCompany,
@@ -86,9 +87,98 @@ describe("looksLikeQuestion", () => {
     expect(looksLikeQuestion("demo nasıl yapılıyor")).toBe(true);
   });
 
+  it("kimlik sorularini yakalar (insan/ai/bot misin)", () => {
+    expect(looksLikeQuestion("insan misin ai misin")).toBe(true);
+    expect(looksLikeQuestion("insan mısın ai mısın")).toBe(true);
+    expect(looksLikeQuestion("bot musun")).toBe(true);
+    expect(looksLikeQuestion("yapay zeka misin")).toBe(true);
+    expect(looksLikeQuestion("yapay zekâ mısın")).toBe(true);
+    expect(looksLikeQuestion("sen kimsin")).toBe(true);
+    expect(looksLikeQuestion("kimsin")).toBe(true);
+    expect(looksLikeQuestion("gercek misin")).toBe(true);
+    expect(looksLikeQuestion("asistan misin")).toBe(true);
+  });
+
+  it("infix soru kaliplarini yakalar (... var mi, ... destekliyor mu)", () => {
+    expect(looksLikeQuestion("Pazaryeri destegi var mi")).toBe(true);
+    expect(looksLikeQuestion("Trendyol ile uyumlu mu")).toBe(true);
+    expect(looksLikeQuestion("Shopify destekliyor mu")).toBe(true);
+    expect(looksLikeQuestion("aylik ne kadar tutar")).toBe(true);
+    expect(looksLikeQuestion("Excel'e export yapabilir mi")).toBe(true);
+  });
+
   it("normal cevaplari soru saymaz", () => {
     expect(looksLikeQuestion("Ayşe")).toBe(false);
     expect(looksLikeQuestion("Acme Tekstil")).toBe(false);
+    expect(looksLikeQuestion("Mehmet Ali")).toBe(false);
+    expect(looksLikeQuestion("Demo almak istiyorum")).toBe(false);
+  });
+});
+
+describe("looksLikeGibberish", () => {
+  it("rastgele tus kombinasyonlarini yakalar", () => {
+    expect(looksLikeGibberish("hgdsghsdghdsü")).toBe(true);
+    expect(looksLikeGibberish("jhfhg")).toBe(true);
+    expect(looksLikeGibberish("asdfgh")).toBe(true);
+    expect(looksLikeGibberish("qwertyu")).toBe(true);
+    expect(looksLikeGibberish("zxcvbnm")).toBe(true);
+    expect(looksLikeGibberish("kfdjksl")).toBe(true);
+  });
+
+  it("Turkce gercek isimleri yanlis pozitifle yakalamaz", () => {
+    expect(looksLikeGibberish("Ayşe")).toBe(false);
+    expect(looksLikeGibberish("Mehmet")).toBe(false);
+    expect(looksLikeGibberish("Zeynep")).toBe(false);
+    expect(looksLikeGibberish("Çelik")).toBe(false);
+    expect(looksLikeGibberish("Yıldız")).toBe(false);
+    expect(looksLikeGibberish("Cengiz")).toBe(false);
+    expect(looksLikeGibberish("Müğla-Köyceğiz")).toBe(false);
+    expect(looksLikeGibberish("Zeynep Yıldız")).toBe(false);
+  });
+
+  it("sirket adlarini yanlis pozitifle yakalamaz", () => {
+    expect(looksLikeGibberish("Acme Tekstil")).toBe(false);
+    expect(looksLikeGibberish("Mor Botanik")).toBe(false);
+    expect(looksLikeGibberish("Garanti BBVA")).toBe(false);
+    expect(looksLikeGibberish("Shopify")).toBe(false);
+    expect(looksLikeGibberish("Bireysel")).toBe(false);
+  });
+
+  it("cok kisa girdileri (3 char alti) gibberish saymaz", () => {
+    // Bu uzunlukta zaten Zod min(2) kuralina takilir; biz burada false dondur
+    expect(looksLikeGibberish("Al")).toBe(false);
+    expect(looksLikeGibberish("Pi")).toBe(false);
+  });
+});
+
+describe("parseName — gibberish katmani", () => {
+  it("'hgdsghsdghdsü' isim olarak kabul ETMEZ", () => {
+    const r = parseName("hgdsghsdghdsü");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("junk");
+  });
+
+  it("'jhfhg' isim olarak kabul ETMEZ", () => {
+    const r = parseName("jhfhg");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("junk");
+  });
+
+  it("'asdfgh' isim olarak kabul ETMEZ", () => {
+    const r = parseName("asdfgh");
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("parseCompany — gibberish katmani", () => {
+  it("'kfdjksl' sirket adi olarak kabul ETMEZ", () => {
+    const r = parseCompany("kfdjksl");
+    expect(r.ok).toBe(false);
+  });
+
+  it("'hgdsghsdghdsü' sirket adi olarak kabul ETMEZ", () => {
+    const r = parseCompany("hgdsghsdghdsü");
+    expect(r.ok).toBe(false);
   });
 });
 

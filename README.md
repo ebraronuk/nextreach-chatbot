@@ -8,10 +8,37 @@
 
 ## Demo
 
-- **Canlı:** https://nextreach-chatbot.vercel.app  
-- **Admin paneli:** `https://nextreach-chatbot.vercel.app/admin?key=<ADMIN_SECRET_KEY>`  
-
+- **Canlı:** https://nextreach-chatbot.vercel.app
+- **Admin paneli:** `https://nextreach-chatbot.vercel.app/admin?key=<ADMIN_SECRET_KEY>`
+  > Admin secret key teslim notunda ayrı paylaşılacaktır — public bir repo'da gizli bilgi tutmadım.
 - **GitHub:** https://github.com/ebraronuk/nextreach-chatbot
+
+### Ekran görüntüleri
+
+#### 1) Landing — Aylin'in proaktif davet baloncuğu
+Sayfa açıldıktan 4 saniye sonra Aylin "Sohbete başla" daveti gönderiyor. Kapatılırsa localStorage'a kaydediliyor, aynı kullanıcıya bir daha çıkmıyor.
+
+![Landing ve Aylin baloncuğu](docs/screenshots/01-landing-proactive-bubble.png)
+
+#### 2) Chatbot — Aylin ile sohbet
+Quick reply chip'leri, typing indicator ("Aylin yazıyor..."), kullanıcı/asistan mesaj balonları. Mesaj gönderildikten sonra textarea odakta kalıyor.
+
+![Chatbot konuşma](docs/screenshots/02-chatbot-conversation.png)
+
+#### 3) Admin paneli — Lead listesi + KPI kartları
+Hot/Warm/Cold sayıları üstte. Tablo skor sırasıyla. Renkli rozetler bir bakışta önceliği gösteriyor. Üstte filtre çubuğu (sıcaklık, status, tarih).
+
+![Admin dashboard](docs/screenshots/03-admin-dashboard.png)
+
+#### 4) Admin — Lead detayı (AI özet + skor breakdown + transkript)
+Satıra tıklayınca yan panel açılıyor. **AI özet** en üstte — satış ekibi 30 saniyede leadi anlıyor. Skor breakdown her +/- maddeyi gösteriyor, transkript altta. Status drop-down ile workflow yönetimi.
+
+![Admin lead detay drawer](docs/screenshots/04-admin-detail-drawer.png)
+
+#### 5) Mobile — Chatbot bottom-sheet
+Mobilde chatbot tam ekran bottom-sheet olarak açılıyor. ProactiveBubble mobilde gizli (FAB zaten dikkat çekiyor).
+
+![Mobile görünüm](docs/screenshots/05-mobile.png)
 
 ### Hızlı end-to-end test
 ```bash
