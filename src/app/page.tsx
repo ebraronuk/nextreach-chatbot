@@ -17,6 +17,7 @@ import { Header } from "@/components/landing/Header";
 import { Hero } from "@/components/landing/Hero";
 import { SocialProof } from "@/components/landing/SocialProof";
 import { Features } from "@/components/landing/Features";
+import { FAQ } from "@/components/landing/FAQ";
 import { Footer } from "@/components/landing/Footer";
 
 export default function HomePage() {
@@ -27,6 +28,7 @@ export default function HomePage() {
         <Hero />
         <SocialProof />
         <Features />
+        <FAQ />
       </main>
       <Footer />
 

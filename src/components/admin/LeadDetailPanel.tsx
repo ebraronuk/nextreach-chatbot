@@ -12,13 +12,16 @@ import { useEffect, useState } from "react";
 import { ScoreBadge } from "./ScoreBadge";
 import type { LeadRow } from "@/lib/db/supabase";
 import { cn } from "@/lib/utils";
+import {
+  INTENT_LABEL_LONG,
+  VOLUME_LABEL,
+  TIMELINE_LABEL,
+  STATUS_LABEL,
+} from "@/constants/labels";
 
-const STATUS_OPTIONS: Array<{ value: LeadRow["status"]; label: string }> = [
-  { value: "new", label: "Yeni" },
-  { value: "contacted", label: "İletişime geçildi" },
-  { value: "qualified", label: "Kalifiye" },
-  { value: "rejected", label: "Reddedildi" },
-];
+const STATUS_OPTIONS: Array<{ value: LeadRow["status"]; label: string }> = (
+  ["new", "contacted", "qualified", "rejected"] as const
+).map((value) => ({ value, label: STATUS_LABEL[value] }));
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("tr-TR", {
@@ -59,7 +62,9 @@ export function LeadDetailPanel({
 }) {
   const [status, setStatus] = useState<LeadRow["status"]>(lead?.status ?? "new");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   useEffect(() => {
     if (lead) setStatus(lead.status);
@@ -79,8 +84,10 @@ export function LeadDetailPanel({
 
   async function handleStatusChange(next: LeadRow["status"]) {
     if (!lead) return;
+    const prevStatus = lead.status;
     setStatus(next);
     setSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/leads?key=${encodeURIComponent(adminKey)}`, {
         method: "PATCH",
@@ -90,10 +97,13 @@ export function LeadDetailPanel({
       if (res.ok) {
         onUpdated({ ...lead, status: next });
       } else {
-        setStatus(lead.status); // revert
+        setStatus(prevStatus);
+        const json = (await res.json().catch(() => ({}))) as { message?: string };
+        setSaveError(json.message ?? `Kaydedilemedi (HTTP ${res.status})`);
       }
-    } catch {
-      setStatus(lead.status);
+    } catch (err) {
+      setStatus(prevStatus);
+      setSaveError(err instanceof Error ? err.message : "Ağ hatası");
     } finally {
       setSaving(false);
     }
@@ -104,9 +114,11 @@ export function LeadDetailPanel({
     try {
       await navigator.clipboard.writeText(buildCopyText(lead));
       setCopied(true);
+      setCopyError(false);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // sessizce yok say
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 2000);
     }
   }
 
@@ -180,14 +192,18 @@ export function LeadDetailPanel({
               {lead.intent && (
                 <>
                   <dt className="text-slate-500">Niyet</dt>
-                  <dd className="col-span-2 text-slate-800">{lead.intent}</dd>
+                  <dd className="col-span-2 text-slate-800">
+                    {INTENT_LABEL_LONG[lead.intent]}
+                  </dd>
                 </>
               )}
 
               {lead.volume && (
                 <>
                   <dt className="text-slate-500">Hacim</dt>
-                  <dd className="col-span-2 text-slate-800">{lead.volume}</dd>
+                  <dd className="col-span-2 text-slate-800">
+                    {VOLUME_LABEL[lead.volume]}
+                  </dd>
                 </>
               )}
 
@@ -201,7 +217,9 @@ export function LeadDetailPanel({
               {lead.timeline && (
                 <>
                   <dt className="text-slate-500">Zaman</dt>
-                  <dd className="col-span-2 text-slate-800">{lead.timeline}</dd>
+                  <dd className="col-span-2 text-slate-800">
+                    {TIMELINE_LABEL[lead.timeline]}
+                  </dd>
                 </>
               )}
 
@@ -301,14 +319,27 @@ export function LeadDetailPanel({
                 </option>
               ))}
             </select>
+            {saveError && (
+              <p
+                role="alert"
+                className="mt-1.5 text-xs text-red-600 bg-red-50 ring-1 ring-red-100 rounded-md px-2 py-1"
+              >
+                Kaydedilemedi: {saveError}
+              </p>
+            )}
           </div>
 
           <button
             type="button"
             onClick={handleCopy}
+            aria-live="polite"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 transition"
           >
-            {copied ? "✓ Kopyalandı" : "Bilgileri kopyala"}
+            {copyError
+              ? "Kopyalanamadı — manuel seçin"
+              : copied
+                ? "✓ Kopyalandı"
+                : "Bilgileri kopyala"}
           </button>
         </footer>
       </aside>

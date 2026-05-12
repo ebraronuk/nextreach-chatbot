@@ -11,11 +11,14 @@
  * - AI ozet ve hot-lead webhook fire-and-forget; insert'i bloklamaz.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { scoreLead } from "@/lib/scoring/score";
 import { summarizeLead } from "@/lib/ai/summary";
-import { hashIp } from "@/lib/utils";
+import { hashIp } from "@/lib/server-utils";
+import { isDisposableEmail } from "@/constants/email";
+import { getServerEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -53,45 +56,36 @@ const PatchBodySchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Disposable email blacklist
-// Kapsamli olmasi gerekmiyor — bu MVP icin kisa, sik gorulen liste yeter.
-// Tam liste icin ileride disposable-email-domains paketi entegre edilebilir.
+// Disposable email blacklist taşındı -> constants/email.ts (DRY)
 // ---------------------------------------------------------------------------
-const DISPOSABLE_DOMAINS = new Set([
-  "mailinator.com",
-  "tempmail.com",
-  "temp-mail.org",
-  "10minutemail.com",
-  "guerrillamail.com",
-  "guerrillamailblock.com",
-  "sharklasers.com",
-  "yopmail.com",
-  "throwawaymail.com",
-  "maildrop.cc",
-  "trashmail.com",
-  "getnada.com",
-  "dispostable.com",
-  "fakeinbox.com",
-  "mintemail.com",
-  "spam4.me",
-  "33mail.com",
-  "trbvm.com",
-]);
-
-function isDisposableEmail(email: string): boolean {
-  const domain = email.split("@")[1]?.toLowerCase();
-  return Boolean(domain && DISPOSABLE_DOMAINS.has(domain));
-}
 
 // ---------------------------------------------------------------------------
 // Rate limit (in-memory; 10 dk pencerede IP basina 3 submission)
+// Long-lived process'de bucket Map size buyur — her N submission'da prune.
+// Vercel'de instance ~10dk yasar, sorun degil; uzun yasayan deploy'lar icin
+// koruma.
 // ---------------------------------------------------------------------------
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 3;
+const PRUNE_EVERY = 100; // her 100 cagrida bir map'i temizle
 const ipBucket = new Map<string, number[]>();
+let callsSinceLastPrune = 0;
+
+function pruneRateBucket(now: number): void {
+  for (const [key, timestamps] of ipBucket.entries()) {
+    const kept = timestamps.filter((t) => now - t < RATE_WINDOW_MS);
+    if (kept.length === 0) ipBucket.delete(key);
+    else if (kept.length !== timestamps.length) ipBucket.set(key, kept);
+  }
+}
 
 function checkAndRecordRate(ipHash: string): boolean {
   const now = Date.now();
+  callsSinceLastPrune++;
+  if (callsSinceLastPrune >= PRUNE_EVERY) {
+    pruneRateBucket(now);
+    callsSinceLastPrune = 0;
+  }
   const prev = ipBucket.get(ipHash) ?? [];
   const recent = prev.filter((t) => now - t < RATE_WINDOW_MS);
   if (recent.length >= RATE_LIMIT) {
@@ -110,9 +104,9 @@ function getClientIp(req: NextRequest): string {
 }
 
 function isAdmin(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_SECRET_KEY;
+  const expected = getServerEnv().ADMIN_SECRET_KEY;
   const key = req.nextUrl.searchParams.get("key");
-  return Boolean(expected) && key === expected;
+  return key === expected;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +206,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Async: AI ozet + hot lead webhook. Bilerek await'lemiyoruz.
-  void runAfterInsert(inserted.id, data, score);
+  // Async: AI ozet + hot lead webhook. Next.js `after()` Vercel'de response
+  // dondukten sonra runtime'in islemi tamamlamasini garanti eder; void Promise
+  // patterni serverless'da kaybolabiliyor.
+  after(() => runAfterInsert(inserted.id, data, score));
 
   return NextResponse.json(
     { ok: true, id: inserted.id, score, temperature },
@@ -246,28 +242,45 @@ async function runAfterInsert(
         .from("leads")
         .update({ ai_summary: summary })
         .eq("id", leadId);
-      if (error) console.error("[runAfterInsert] summary update failed", error);
+      if (error) {
+        console.error(JSON.stringify({
+          event: "lead_summary_update_failed",
+          leadId,
+          err: error.message,
+        }));
+      }
     }
   } catch (err) {
-    console.error("[runAfterInsert] summary step failed", err);
+    console.error(JSON.stringify({
+      event: "lead_summary_failed",
+      leadId,
+      err: err instanceof Error ? err.message : String(err),
+    }));
   }
 
-  if (score >= 80 && process.env.HOT_LEAD_WEBHOOK_URL) {
+  const webhookUrl = getServerEnv().HOT_LEAD_WEBHOOK_URL;
+  if (score >= 80 && webhookUrl) {
     try {
-      await fetch(process.env.HOT_LEAD_WEBHOOK_URL, {
+      await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // ADMIN_SECRET_KEY webhook receiver loglarinda sizmasin diye sadece
+          // relative path gonderiyoruz; alici tarafi anahtari kendi env'inde tutmali.
           name: data.name,
           company: data.company,
           email: data.email,
           score,
           summary,
-          adminPath: `/admin?key=${process.env.ADMIN_SECRET_KEY ?? ""}`,
+          adminPath: "/admin",
         }),
       });
     } catch (err) {
-      console.error("[runAfterInsert] hot-lead webhook failed", err);
+      console.error(JSON.stringify({
+        event: "lead_hot_webhook_failed",
+        leadId,
+        err: err instanceof Error ? err.message : String(err),
+      }));
     }
   }
 }

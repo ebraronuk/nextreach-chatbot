@@ -81,11 +81,11 @@ export function Features() {
             <Plug className="size-5" />
           </div>
           <h3 className="text-lg font-semibold text-slate-900">
-            Hazır entegrasyonlar
+            10 dakikada bağlanır
           </h3>
           <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-            Shopify, Ticimax, Trendyol, Hepsiburada, n11. Aynı gün
-            bağlanır, ilk veri akışı 10 dakikada başlar.
+            Shopify, Ticimax, Trendyol, Hepsiburada, n11. IT desteği
+            beklemeden aynı gün veri akmaya başlar.
           </p>
         </article>
 
@@ -94,11 +94,12 @@ export function Features() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold text-slate-900">
-                Sales ekibinizin kullandığı araçlarla konuşur
+                Ekibinizin diliyle konuşur
               </h3>
               <p className="mt-1 text-sm text-slate-600 max-w-xl leading-relaxed">
-                CSV, Excel ve Slack üzerinden günlük rapor; HubSpot ve Pipedrive
-                için lead push; webhook ile özel sistemlerinize entegrasyon.
+                Slack&apos;e günlük özet, HubSpot ve Pipedrive&apos;a otomatik
+                lead, Excel&apos;e tek tıkla dışa aktarım. Yeni araç
+                öğrenmeden bugünden kullanın.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

@@ -7,28 +7,11 @@
 import { ScoreBadge } from "./ScoreBadge";
 import type { LeadRow } from "@/lib/db/supabase";
 import { cn } from "@/lib/utils";
-
-const INTENT_LABEL: Record<string, string> = {
-  demo: "Demo",
-  pricing: "Fiyat",
-  integration: "Entegrasyon",
-  support: "Destek",
-  other: "Diğer",
-};
-
-const TIMELINE_LABEL: Record<string, string> = {
-  "this-week": "Bu hafta",
-  "this-month": "Bu ay",
-  "this-quarter": "Bu çeyrek",
-  researching: "Araştırıyor",
-};
-
-const STATUS_LABEL: Record<LeadRow["status"], string> = {
-  new: "Yeni",
-  contacted: "İletişimde",
-  qualified: "Kalifiye",
-  rejected: "Reddedildi",
-};
+import {
+  INTENT_LABEL,
+  TIMELINE_LABEL,
+  STATUS_LABEL_SHORT,
+} from "@/constants/labels";
 
 const STATUS_STYLE: Record<LeadRow["status"], string> = {
   new: "bg-brand-50 text-brand-700",
@@ -37,15 +20,21 @@ const STATUS_STYLE: Record<LeadRow["status"], string> = {
   rejected: "bg-slate-100 text-slate-500",
 };
 
+// Tek Intl instance — her render'da yenisini olusturmak pahali olabilir.
+const rtf = new Intl.RelativeTimeFormat("tr-TR", { numeric: "auto" });
+const dtfShort = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "short",
+});
+
 function formatRelative(iso: string): string {
   const d = new Date(iso);
-  const now = Date.now();
-  const diffSec = Math.round((now - d.getTime()) / 1000);
+  const diffSec = Math.round((Date.now() - d.getTime()) / 1000);
   if (diffSec < 60) return "az önce";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} dk önce`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} sa önce`;
-  if (diffSec < 7 * 86400) return `${Math.floor(diffSec / 86400)} gün önce`;
-  return d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  if (diffSec < 3600) return rtf.format(-Math.floor(diffSec / 60), "minute");
+  if (diffSec < 86400) return rtf.format(-Math.floor(diffSec / 3600), "hour");
+  if (diffSec < 7 * 86400) return rtf.format(-Math.floor(diffSec / 86400), "day");
+  return dtfShort.format(d);
 }
 
 export function LeadsTable({
@@ -131,7 +120,7 @@ export function LeadsTable({
                         STATUS_STYLE[lead.status],
                       )}
                     >
-                      {STATUS_LABEL[lead.status]}
+                      {STATUS_LABEL_SHORT[lead.status]}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
@@ -184,7 +173,7 @@ export function LeadsTable({
                     STATUS_STYLE[lead.status],
                   )}
                 >
-                  {STATUS_LABEL[lead.status]}
+                  {STATUS_LABEL_SHORT[lead.status]}
                 </span>
                 {lead.intent && (
                   <span className="text-xs text-slate-500">

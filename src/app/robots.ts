@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { clientEnv } from "@/lib/env";
 
 /**
  * /robots.txt — Next.js 15 file-based metadata.
@@ -8,7 +9,7 @@ import type { MetadataRoute } from "next";
  * client tarafindan cagrilan internal route'lar.
  */
 export default function robots(): MetadataRoute.Robots {
-  const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://nextreach-chatbot.vercel.app";
+  const siteUrl = clientEnv.NEXT_PUBLIC_APP_URL ?? "https://nextreach-chatbot.vercel.app";
 
   return {
     rules: [

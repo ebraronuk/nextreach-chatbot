@@ -6,6 +6,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ChatMessage } from "@/types/lead";
+import { clientEnv, getServerEnv } from "@/lib/env";
 
 /**
  * `public.leads` tablo satiri — DB snake_case ile birebir uyumlu.
@@ -36,30 +37,15 @@ export interface LeadRow {
   status: "new" | "contacted" | "qualified" | "rejected";
 }
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!url) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL tanimli degil. .env.local'i kontrol et.");
-}
-
 export function getBrowserClient(): SupabaseClient {
-  if (!anonKey) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY tanimli degil.");
-  }
-  return createClient(url!, anonKey, {
+  return createClient(clientEnv.NEXT_PUBLIC_SUPABASE_URL, clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
     auth: { persistSession: false },
   });
 }
 
 export function getServerClient(): SupabaseClient {
-  if (!serviceKey) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY tanimli degil. Sadece server-side kullanim icin gerekli.",
-    );
-  }
-  return createClient(url!, serviceKey, {
+  const env = getServerEnv();
+  return createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

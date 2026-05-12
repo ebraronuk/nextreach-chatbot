@@ -77,9 +77,26 @@ export async function summarizeLead(input: SummaryInput): Promise<string | null>
     const text = result.response.text().trim();
 
     if (!text) return null;
-    return text.length > 600 ? text.slice(0, 600).trim() + "..." : text;
+    return truncateAtSentence(text, 600);
   } catch (err) {
     console.error("[summarizeLead] failed", err);
     return null;
   }
+}
+
+/**
+ * Hard limit'i asarsa, cumle sonunda (`.` / `!` / `?`) kes — ortada degil.
+ * En kotu durumda yumusak ellipsis ile bitir.
+ */
+function truncateAtSentence(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastEnd = Math.max(
+    cut.lastIndexOf("."),
+    cut.lastIndexOf("!"),
+    cut.lastIndexOf("?"),
+  );
+  // Kesim noktasi makul uzaklikta degilse (cok erken cumle bitisi) ellipsis.
+  if (lastEnd > max * 0.5) return cut.slice(0, lastEnd + 1);
+  return cut.trim() + "…";
 }

@@ -4,10 +4,10 @@
  */
 export function SocialProof() {
   const stats: Array<{ value: string; label: string }> = [
-    { value: "300+", label: "aktif marka" },
-    { value: "₺1.2M+", label: "günlük işlem hacmi" },
-    { value: "%99,9", label: "uptime (son 90 gün)" },
-    { value: "24 sa", label: "ortalama yanıt süresi" },
+    { value: "300+", label: "aktif e-ticaret markası" },
+    { value: "₺2.8M+", label: "aylık takip edilen ciro" },
+    { value: "15 dk", label: "ortalama entegrasyon süresi" },
+    { value: "< 2 sa", label: "satış ekibi ilk yanıt süresi" },
   ];
 
   return (

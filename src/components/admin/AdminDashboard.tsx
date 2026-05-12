@@ -2,17 +2,21 @@
 
 /**
  * AdminDashboard — admin sayfasinin client orchestrator'u.
- * - Server'dan gelen initialLeads'i state'e alir
- * - Filtre + secili lead state'i tutar
- * - KPI'lari hesaplar
- * - FiltersBar, LeadsTable, LeadDetailPanel'i komponoze eder
  *
- * Realtime gelistirme: page yenilenmeden listeyi guncellemek icin
- * supabase browser client ile subscribe edilebilir; bu MVP'de manuel
- * "yenile" yeterli kabul edildi (link adresi tek tikla yenilenebilir).
+ * Realtime stratejisi:
+ *   Migration 001 ile RLS sikilastirildi (anon SELECT yok). Bu yuzden
+ *   browser-side Supabase Realtime subscribe edilemez. Bunun yerine:
+ *
+ *   1. Manuel "Yenile" butonu (her zaman ulasilabilir)
+ *   2. Pencere odaga gelince otomatik yenile (kullanici tab'a doner donmez taze veri)
+ *   3. Polling devre disi (gurultu yapmamak icin opt-in; 60sn ile ileride aktif)
+ *
+ *   Server tarafindan GET /api/leads (admin key dogrulamali) cagriyor. 4xx/5xx
+ *   ise "Yenile" butonu hata state'i gosteriyor.
  */
-import { useEffect, useMemo, useState } from "react";
-import { getBrowserClient, type LeadRow } from "@/lib/db/supabase";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCcw } from "lucide-react";
+import type { LeadRow } from "@/lib/db/supabase";
 import { FiltersBar, type TemperatureFilter, type StatusFilter, type DateFilter } from "./FiltersBar";
 import { LeadsTable } from "./LeadsTable";
 import { LeadDetailPanel } from "./LeadDetailPanel";
@@ -46,49 +50,88 @@ export function AdminDashboard({
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [newRowIds, setNewRowIds] = useState<Set<string>>(() => new Set());
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<number>(() => Date.now());
 
-  // Realtime: yeni lead'ler INSERT olunca anlik dussun.
-  // Not: Bu calismasi icin supabase/schema.sql icindeki anon select policy
-  // Supabase'de aktif olmali. Policy yoksa kanal silent yapar, hata kapali.
+  // Unmount guard — setTimeout/fetch tamamlandiginda component yok olduysa
+  // setState yapmamak icin.
+  const mountedRef = useRef(true);
   useEffect(() => {
-    const sb = getBrowserClient();
-    const channel = sb
-      .channel("admin-leads-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "leads" },
-        (payload) => {
-          const row = payload.new as LeadRow;
-          setLeads((prev) => {
-            // ayni id ikinci kez gelirse coklama yapma
-            if (prev.some((l) => l.id === row.id)) return prev;
-            return [row, ...prev];
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Yenile — server'dan tum lead'leri yeniden cek
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const res = await fetch(
+        `/api/leads?key=${encodeURIComponent(adminKey)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const json = (await res.json()) as { ok?: boolean; leads?: LeadRow[] };
+      if (!mountedRef.current) return;
+      if (!json.ok || !Array.isArray(json.leads)) {
+        throw new Error("Beklenmedik sunucu cevabi");
+      }
+
+      // Onceki listede olmayan id'leri "yeni" olarak isaretle (highlight icin).
+      setLeads((prev) => {
+        const prevIds = new Set(prev.map((l) => l.id));
+        const incoming = json.leads!;
+        const freshIds = incoming
+          .filter((l) => !prevIds.has(l.id))
+          .map((l) => l.id);
+        if (freshIds.length > 0 && mountedRef.current) {
+          setNewRowIds((s) => {
+            const next = new Set(s);
+            for (const id of freshIds) next.add(id);
+            return next;
           });
-          setNewRowIds((prev) => new Set(prev).add(row.id));
-          // 3 saniye sonra highlight'i kaldir
+          // 3sn sonra highlight'i kaldir
           setTimeout(() => {
-            setNewRowIds((prev) => {
-              const next = new Set(prev);
-              next.delete(row.id);
+            if (!mountedRef.current) return;
+            setNewRowIds((s) => {
+              const next = new Set(s);
+              for (const id of freshIds) next.delete(id);
               return next;
             });
           }, 3000);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "leads" },
-        (payload) => {
-          const row = payload.new as LeadRow;
-          setLeads((prev) => prev.map((l) => (l.id === row.id ? row : l)));
-        },
-      )
-      .subscribe();
+        }
+        return incoming;
+      });
+      setLastRefreshAt(Date.now());
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setRefreshError(err instanceof Error ? err.message : "Bilinmeyen hata");
+    } finally {
+      if (mountedRef.current) setRefreshing(false);
+    }
+  }, [adminKey]);
 
+  // Pencere fokuslandiginda yenile — kullanici tab'a doner donmez taze veri gorur.
+  // Spam etmemek icin son yenilemeden 15sn'den fazla gectiyse tetikle.
+  useEffect(() => {
+    const FOCUS_REFRESH_THROTTLE_MS = 15_000;
+    function onFocus() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastRefreshAt < FOCUS_REFRESH_THROTTLE_MS) return;
+      void refresh();
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
     return () => {
-      sb.removeChannel(channel);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
     };
-  }, []);
+  }, [refresh, lastRefreshAt]);
 
   const filtered = useMemo(() => {
     let arr = leads;
@@ -159,11 +202,33 @@ export function AdminDashboard({
         onDateChange={setDateFilter}
       />
 
-      <div className="flex items-center justify-between text-sm text-slate-500">
+      <div className="flex items-center justify-between gap-3 text-sm text-slate-500 flex-wrap">
         <span>
           {filtered.length} lead gösteriliyor
           {filtered.length !== leads.length && ` (toplam ${leads.length})`}
         </span>
+        <div className="flex items-center gap-3">
+          {refreshError && (
+            <span
+              role="alert"
+              className="text-xs text-red-600 bg-red-50 ring-1 ring-red-100 px-2 py-0.5 rounded-full"
+            >
+              Yenileme başarısız: {refreshError}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+            aria-label="Lead listesini yenile"
+          >
+            <RefreshCcw
+              className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
+            {refreshing ? "Yenileniyor..." : "Yenile"}
+          </button>
+        </div>
       </div>
 
       <LeadsTable

@@ -7,31 +7,17 @@
  */
 import type { Intent, Timeline, Volume } from "@/types/lead";
 import type { LeadData, QuickReply, Step } from "./types";
+import {
+  INTENT_LABEL_LONG,
+  VOLUME_LABEL,
+  TIMELINE_LABEL,
+} from "@/constants/labels";
+import { PAYLOAD } from "./payloads";
 
-const INTENT_LABEL: Record<Intent, string> = {
-  demo: "Demo gormek",
-  pricing: "Fiyatlandirma",
-  integration: "Entegrasyon",
-  support: "Destek",
-  other: "Genel bilgi",
-};
-
-const VOLUME_LABEL: Record<Volume, string> = {
-  "<500": "Aylik 500'den az",
-  "500-5k": "Aylik 500-5.000",
-  "5k-50k": "Aylik 5.000-50.000",
-  "50k+": "Aylik 50.000+",
-};
-
-const TIMELINE_LABEL: Record<Timeline, string> = {
-  "this-week": "Bu hafta",
-  "this-month": "Bu ay icinde",
-  "this-quarter": "Bu ceyrek",
-  researching: "Henuz arastiriyorum",
-};
-
+// Sözlükler `constants/labels.ts`'e taşındı. Bu dosya sadece wrapper helper'lar
+// sunuyor — null/undefined için fallback metinleri lokal kalıyor.
 export function intentLabel(intent?: Intent): string {
-  return intent ? INTENT_LABEL[intent] : "Genel";
+  return intent ? INTENT_LABEL_LONG[intent] : "Genel";
 }
 
 export function volumeLabel(volume?: Volume): string {
@@ -63,7 +49,7 @@ const VOLUME_QUICK_REPLIES: QuickReply[] = [
 ];
 
 const TOOL_QUICK_REPLIES: QuickReply[] = [
-  { label: "Hicbir sey kullanmiyoruz", echo: "Su an bir arac kullanmiyoruz", payload: "__none__" },
+  { label: "Hicbir sey kullanmiyoruz", echo: "Su an bir arac kullanmiyoruz", payload: PAYLOAD.NONE },
 ];
 
 const TIMELINE_QUICK_REPLIES: QuickReply[] = [
@@ -71,17 +57,17 @@ const TIMELINE_QUICK_REPLIES: QuickReply[] = [
   { label: "Bu ay icinde", echo: "Bu ay icinde", payload: "this-month" },
   { label: "Bu ceyrek", echo: "Bu ceyrek icinde", payload: "this-quarter" },
   { label: "Henuz arastiriyorum", echo: "Henuz arastirma asamasindayim", payload: "researching" },
-  { label: "Atla", echo: "Bu soruyu atlamak istiyorum", payload: "__skip__" },
+  { label: "Atla", echo: "Bu soruyu atlamak istiyorum", payload: PAYLOAD.SKIP },
 ];
 
 const SUMMARY_QUICK_REPLIES: QuickReply[] = [
-  { label: "Evet, gonder", echo: "Evet, gonderelim", payload: "__confirm__" },
-  { label: "Bir seyi degistirmek istiyorum", echo: "Bir bilgiyi guncellemek istiyorum", payload: "__edit__" },
+  { label: "Evet, gonder", echo: "Evet, gonderelim", payload: PAYLOAD.CONFIRM },
+  { label: "Bir seyi degistirmek istiyorum", echo: "Bir bilgiyi guncellemek istiyorum", payload: PAYLOAD.EDIT },
 ];
 
 const PERSONAL_EMAIL_CONFIRM_REPLIES: QuickReply[] = [
-  { label: "Evet, bu adresle devam", echo: "Bu e-posta ile devam edelim", payload: "__keep__" },
-  { label: "Sirket e-postasi gireyim", echo: "Sirket e-postami yazayim", payload: "__retry__" },
+  { label: "Evet, bu adresle devam", echo: "Bu e-posta ile devam edelim", payload: PAYLOAD.KEEP },
+  { label: "Sirket e-postasi gireyim", echo: "Sirket e-postami yazayim", payload: PAYLOAD.RETRY },
 ];
 
 export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
@@ -94,16 +80,16 @@ export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
       };
     case "identity_name":
       return {
-        content: "Cok iyi! Once kisaca tanisalim. Adiniz nedir?",
+        content: "Harika. Sizi tanıyabilir miyim — adınız?",
       };
     case "identity_company":
       return {
-        content: `Tanistigimiza sevindim, ${lead.name ?? ""}. Hangi sirketten yaziyorsunuz?`.trim(),
+        content: `Memnun oldum, ${lead.name ?? ""}. Hangi şirketten yazıyorsunuz?`.trim(),
       };
     case "identity_email":
       return {
         content:
-          "Ekibimizin size dogrudan donus yapabilmesi icin is e-postanizi alabilir miyim?",
+          "Ekibimizin doğrudan dönüş yapabilmesi için iş e-postanız?",
       };
     case "identity_email_confirm_personal":
       return {
@@ -114,19 +100,19 @@ export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
     case "qualification_volume":
       return {
         content:
-          "NextReach'i sizin icin daha iyi konumlandirabilmem icin: aylik yaklasik kac siparis isliyorsunuz?",
+          "Size doğru paketi önerebilmem için: aylık yaklaşık kaç sipariş işliyorsunuz?",
         quickReplies: VOLUME_QUICK_REPLIES,
       };
     case "qualification_tool":
       return {
         content:
-          "Su an siparis ve analitik tarafinda hangi araclari kullaniyorsunuz?",
+          "Şu an sipariş ve analitik tarafında hangi araçları kullanıyorsunuz?",
         quickReplies: TOOL_QUICK_REPLIES,
       };
     case "timeline":
       return {
         content:
-          "Son bir sorum: NextReach'i kullanmaya ne zaman baslamayi dusunuyorsunuz?",
+          "Son sorum: NextReach'i kullanmaya ne zaman başlamayı düşünüyorsunuz?",
         quickReplies: TIMELINE_QUICK_REPLIES,
       };
     case "summary":
@@ -137,7 +123,7 @@ export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
     case "submitted":
       return {
         content:
-          "Mukemmel! 🎉 Talebinizi olusturuyorum. Ekibimizden bir uzman 24 saat icinde size donus yapacak.",
+          "Aldım ✓ Talebinizi ekibimize ilettim — 24 saat içinde size dönüş yapacağız. Sizinle tanışmak güzeldi!",
       };
   }
 }

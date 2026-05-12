@@ -9,8 +9,17 @@
  * varsa console'a log dusulup `success: false` donuyor — kullanici "Talebinizi
  * olusturduk" mesajini gormus oluyor (UX), backend log'larda gercek hata var.
  */
+import { z } from "zod";
 import type { LeadData } from "@/lib/conversation/types";
 import type { ChatMessage } from "@/types/lead";
+
+const ResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  id: z.string().uuid().optional(),
+  score: z.number().int().min(0).max(100).optional(),
+  temperature: z.enum(["hot", "warm", "cold"]).optional(),
+  message: z.string().optional(),
+});
 
 export interface SubmitLeadInput {
   leadData: LeadData;
@@ -55,13 +64,19 @@ export async function submitLead(input: SubmitLeadInput): Promise<SubmitLeadResu
       body: JSON.stringify(body),
     });
 
-    const json = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      id?: string;
-      score?: number;
-      temperature?: "hot" | "warm" | "cold";
-      message?: string;
-    };
+    const raw = await res.json().catch(() => null);
+    // Backend semasinda silent degisiklik olursa caller sessizce NaN almasin —
+    // Zod ile runtime parse.
+    const parsed = ResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      console.error(
+        "[submitLead] backend response schema mismatch",
+        res.status,
+        parsed.error.flatten(),
+      );
+      return { success: false };
+    }
+    const json = parsed.data;
 
     if (!res.ok || json.ok === false) {
       console.error("[submitLead] failed", res.status, json);

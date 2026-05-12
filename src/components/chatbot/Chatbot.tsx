@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
 import { MessageBubble } from "./MessageBubble";
+import { ProactiveBubble } from "./ProactiveBubble";
 import { QuickReplies } from "./QuickReplies";
 import { TypingIndicator } from "./TypingIndicator";
 import {
@@ -39,8 +40,9 @@ import type {
   UIMessage,
 } from "@/lib/conversation/types";
 import { submitLead } from "@/lib/api/submitLead";
+import { track } from "@/lib/analytics";
 
-const TYPING_DELAY_MS = 550;
+import { TYPING_DELAY_MS } from "@/constants/chat";
 
 export function Chatbot() {
   const [open, setOpen] = useState(false);
@@ -183,6 +185,7 @@ export function Chatbot() {
         case "advance":
         case "branch": {
           const nextLead = { ...stateAfterUser.leadData, ...result.updates };
+          track("chat_step_entered", { from: step, to: result.nextStep });
           await playBotTurn(stateAfterUser, result.nextStep, nextLead);
           break;
         }
@@ -200,6 +203,12 @@ export function Chatbot() {
             content: m.content,
             timestamp: m.timestamp,
           }));
+          track("chat_submitted", {
+            durationSec,
+            volume: nextLead.volume,
+            timeline: nextLead.timeline,
+            intent: nextLead.intent,
+          });
           void submitLead({
             leadData: nextLead,
             transcript,
@@ -217,6 +226,7 @@ export function Chatbot() {
           break;
         }
         case "fallback": {
+          track("chat_fallback_triggered", { step });
           await playGeminiFallback(stateAfterUser);
           break;
         }
@@ -405,18 +415,24 @@ export function Chatbot() {
 
   return (
     <>
+      {/* Proaktif davet baloncuğu — kapatılmadıysa 4sn sonra çıkar */}
+      {!open && <ProactiveBubble />}
+
       {/* Floating CTA */}
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          track("chat_opened", { source: "fab" });
+        }}
         className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-3 text-sm font-medium text-white shadow-xl shadow-brand-600/30 hover:bg-brand-700 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
         aria-label="Aylin ile sohbeti baslat"
         aria-expanded={open}
         aria-haspopup="dialog"
       >
         <MessageCircle className="size-4" />
-        Bize Ulasin
+        Bize Ulaşın
       </button>
 
       {open && (

@@ -11,12 +11,16 @@ import type { Intent, Timeline, Volume } from "@/types/lead";
 import { botMessageForStep } from "./scripts";
 import type { BotMessage } from "./scripts";
 import {
+  isDismissive,
+  isPureGreeting,
+  looksLikeQuestion,
   parseCompany,
   parseCurrentTool,
   parseEmail,
   parseName,
 } from "./validation";
 import type { ConversationState, LeadData, QuickReply, Step, UIMessage } from "./types";
+import { PAYLOAD } from "./payloads";
 
 export const SCHEMA_VERSION = 1;
 
@@ -51,33 +55,66 @@ export interface UserInput {
 export function handleUserInput(step: Step, input: UserInput): StepResult {
   switch (step) {
     case "greeting": {
-      // Quick reply ise direkt intent. Serbest metinde intent bilinmiyor — other yaz.
-      const intent: Intent = isIntent(input.payload) ? input.payload : "other";
-      return { kind: "advance", nextStep: "identity_name", updates: { intent } };
+      // 1) Quick reply ile intent geldi -> direkt advance
+      if (isIntent(input.payload)) {
+        return { kind: "advance", nextStep: "identity_name", updates: { intent: input.payload } };
+      }
+      // 2) Serbest metin: sadece selamlama mi? -> kullanicıyı niyet seçimine geri yonlendir
+      if (isPureGreeting(input.text)) {
+        return {
+          kind: "clarify",
+          botMessage:
+            "Merhaba 👋 Size nasıl yardımcı olabileceğimi anlamak için aşağıdaki seçeneklerden birini işaretler misiniz?",
+        };
+      }
+      // 3) Argo / dismissive ("naber kız" gibi) — nazikçe redirect, niyet sor
+      if (isDismissive(input.text)) {
+        return {
+          kind: "clarify",
+          botMessage:
+            "Tanıştığımıza memnun oldum. Aşağıdaki seçeneklerden biriyle başlayalım mı?",
+        };
+      }
+      // 4) Soru sorduysa -> Gemini fallback
+      if (looksLikeQuestion(input.text)) {
+        return { kind: "fallback" };
+      }
+      // 5) Anlamli metin ama niyet belli degil — "other" olarak ilerlet
+      return {
+        kind: "advance",
+        nextStep: "identity_name",
+        updates: { intent: "other" },
+      };
     }
 
     case "identity_name": {
       if (looksLikeQuestion(input.text)) return { kind: "fallback" };
-      const parsed = parseName(input.text);
-      if (!parsed.ok) {
+      if (isDismissive(input.text)) {
         return {
           kind: "clarify",
           botMessage:
-            "Anladim 🙏 Talebinizi kaydedebilmem icin sadece kisa bir tanitim yeterli, isminizi paylasir misiniz?",
+            "Bilgilerinizi saygıyla işliyoruz — sadece adınız yeterli, kısaca paylaşır mısınız?",
         };
+      }
+      const parsed = parseName(input.text);
+      if (!parsed.ok) {
+        // Refusal / junk / format hata mesajları validation.ts'den geliyor — daha duyarlı
+        return { kind: "clarify", botMessage: parsed.error };
       }
       return { kind: "advance", nextStep: "identity_company", updates: { name: parsed.value } };
     }
 
     case "identity_company": {
       if (looksLikeQuestion(input.text)) return { kind: "fallback" };
-      const parsed = parseCompany(input.text);
-      if (!parsed.ok) {
+      if (isDismissive(input.text)) {
         return {
           kind: "clarify",
-          botMessage:
-            "Sirket adini kisaca yazabilir misiniz? (Tek kelime de olur)",
+          botMessage: "Tek kelime şirket adı yeterli — örnek: 'Acme' veya 'Bireysel'.",
         };
+      }
+      const parsed = parseCompany(input.text);
+      if (!parsed.ok) {
+        return { kind: "clarify", botMessage: parsed.error };
       }
       return { kind: "advance", nextStep: "identity_email", updates: { company: parsed.value } };
     }
@@ -106,10 +143,10 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     }
 
     case "identity_email_confirm_personal": {
-      if (input.payload === "__keep__") {
+      if (input.payload === PAYLOAD.KEEP) {
         return { kind: "advance", nextStep: "qualification_volume", updates: {} };
       }
-      if (input.payload === "__retry__") {
+      if (input.payload === PAYLOAD.RETRY) {
         return { kind: "branch", nextStep: "identity_email", updates: { email: undefined } };
       }
       // Serbest metinse: yeni email mi yazdi diye dene
@@ -156,7 +193,7 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     }
 
     case "qualification_tool": {
-      if (input.payload === "__none__") {
+      if (input.payload === PAYLOAD.NONE) {
         return {
           kind: "advance",
           nextStep: "timeline",
@@ -172,7 +209,7 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     }
 
     case "timeline": {
-      if (input.payload === "__skip__") {
+      if (input.payload === PAYLOAD.SKIP) {
         return { kind: "advance", nextStep: "summary", updates: { timeline: null } };
       }
       if (isTimeline(input.payload)) {
@@ -185,10 +222,10 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     }
 
     case "summary": {
-      if (input.payload === "__confirm__") {
+      if (input.payload === PAYLOAD.CONFIRM) {
         return { kind: "submit", updates: {} };
       }
-      if (input.payload === "__edit__") {
+      if (input.payload === PAYLOAD.EDIT) {
         // Faz 1 kapsaminda basit tutuyoruz — edit akisi henuz yok.
         return {
           kind: "clarify",
@@ -205,25 +242,6 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     case "submitted":
       return { kind: "fallback" };
   }
-}
-
-/**
- * Free-text step'lerde kullanici cevap yerine soru sorabilir
- * (ornek: identity_name'de "fiyat ne kadar?"). Bu durumlari yakalayip
- * Gemini'ye fallback edilmesini saglar.
- */
-function looksLikeQuestion(text: string): boolean {
-  const t = text.trim().toLowerCase();
-  if (t.length === 0) return false;
-  if (t.endsWith("?")) return true;
-  // Tipik Turkce soru / fiyat-ile-baslayan kalip baslangiclari
-  const starters = [
-    "ne ", "ne kadar", "neden", "niye", "nasil", "nasıl",
-    "kac ", "kaç ", "hangi ", "kim ", "kimle", "kime",
-    "fiyat", "ucret", "ücret", "maliyet", "demo ",
-    "support", "destek", "entegrasyon",
-  ];
-  return starters.some((s) => t.startsWith(s));
 }
 
 function guessVolume(text: string): Volume | undefined {

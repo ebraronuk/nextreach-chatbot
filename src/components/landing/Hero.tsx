@@ -28,18 +28,18 @@ export function Hero() {
         </p>
 
         <h1 className="mt-5 text-4xl md:text-6xl font-semibold tracking-tight text-slate-900 leading-[1.05]">
-          E-ticaretinizi{" "}
+          Sipariş, stok ve müşteri.{" "}
           <span className="bg-gradient-to-r from-brand-600 via-blue-500 to-cyan-500 bg-clip-text text-transparent">
-            veriyle büyüten
+            Tek panoda.
           </span>
           <br />
-          dashboard.
+          Tek konuşmada.
         </h1>
 
         <p className="mx-auto mt-5 max-w-2xl text-base md:text-lg text-slate-600 leading-relaxed">
-          300+ marka; gerçek zamanlı sipariş, stok ve müşteri verilerini
-          NextReach ile yönetiyor. Tek bir konuşmayla 24 saat içinde demoya
-          başlayın.
+          Türkiye&apos;nin önde gelen 300+ e-ticaret markası, operasyonunu
+          NextReach ile yönetiyor. Form doldurmadan, 3 dakikalık bir sohbetle
+          demonuzu planlayalım.
         </p>
 
         <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -49,14 +49,14 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-6 py-3 text-sm font-medium text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
           >
             <MessageCircle className="size-4" />
-            Bize Ulaşın
+            Demo Talep Et
           </button>
           <a
             href="#features"
             className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
           >
             <PlayCircle className="size-4" />
-            Daha fazla bilgi
+            Nasıl çalışır?
           </a>
         </div>
 

@@ -24,6 +24,9 @@ export function Header() {
           <a href="#stats" className="hover:text-slate-900 transition">
             Müşteriler
           </a>
+          <a href="#faq" className="hover:text-slate-900 transition">
+            SSS
+          </a>
         </nav>
 
         <button
@@ -31,7 +34,7 @@ export function Header() {
           onClick={openChatbot}
           className="rounded-full bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
         >
-          Bize Ulaşın
+          Demo Talep Et
         </button>
       </div>
     </header>
