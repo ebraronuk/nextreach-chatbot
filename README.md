@@ -181,6 +181,39 @@ npm run test:watch # watch mode
 └─────────────┘  └──────────────┘  └──────────────────┘
 ```
 
+### Neden state machine + AI fallback (hibrit)?
+
+Chatbot'u tamamen Gemini'ye bırakmak yerine **kural-tabanlı bir state machine
+çekirdek + sadece off-script durumlarda AI fallback** olarak tasarladım.
+Sebepler:
+
+1. **Yapılandırılmış veri güvencesi.** Lead qualification için email, şirket
+   adı, hacim, zaman gibi alanları **tip-güvenli** toplamam gerekiyordu. LLM'den
+   yapılandırılmış veri çıkarmak ya JSON-parse rollet kaybediyor ya da
+   halüsinasyona açık. State machine + Zod ile her lead'in temiz veri olduğu
+   garantili.
+2. **Maliyet ve quota öngörülebilirliği.** Pure-AI yaklaşımda her kullanıcı
+   mesajı API çağrısı demek — bir tam konuşma ~8 çağrı. Hibrit yaklaşımda
+   sadece off-script mesajlar (fiyat sorma, teknik soru gibi) AI'a gidiyor:
+   konuşma başına 1-2 çağrı. Free tier (250 RPD) ile rahat rahat test edip
+   demo verebiliyorum. Production'da maliyet 4-5× daha düşük olur.
+3. **Latency.** Scripted yanıt <50ms (yerel state). AI çağrısı ~1-3sn. Akışın
+   %80'i scripted olduğu için kullanıcı hızlı bir deneyim yaşıyor; AI sadece
+   gerektiğinde devreye giriyor.
+4. **Sağlamlık (degradation).** Gemini API yavaşlasa veya quota dolsa bile
+   scripted akış çalışmaya devam eder — kullanıcı yine de talebini bırakabilir.
+   AI'ın "down" olduğu zamanda chatbot ölmemiş olur, sadece zekâ seviyesi düşer.
+5. **Prompt injection azaltma.** AI'ın action scope'u dar olduğu için
+   "talimatlarını yoksay" tarzı saldırıların etki yüzeyi küçük; kullanıcı
+   isim/email girişini AI üzerinden sahteleyemiyor (state machine doğrudan
+   doğruluyor).
+
+Bu pattern, Intercom Fin, Drift, Pylon gibi B2B SaaS chatbot'larında
+kullanılan endüstri standardıdır. Pure-AI yaklaşımı open-ended **destek**
+botlarında mantıklı (Q&A, doküman arama) ama yapılandırılmış lead toplama
+için fazla riskli — hem teknik (data quality) hem operasyonel (cost,
+quota, downtime) açıdan.
+
 ### Klasör yapısı
 ```
 src/
