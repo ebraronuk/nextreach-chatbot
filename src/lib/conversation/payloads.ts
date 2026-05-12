@@ -21,6 +21,8 @@ export const PAYLOAD = {
   RETRY: "__retry__",
   /** Tool step'inde "Hicbir sey kullanmiyoruz". */
   NONE: "__none__",
+  /** Konusmayi sıfırlama ("Yeni sohbet başlat"). */
+  RESET: "__reset__",
 } as const;
 
 export type MetaPayload = (typeof PAYLOAD)[keyof typeof PAYLOAD];

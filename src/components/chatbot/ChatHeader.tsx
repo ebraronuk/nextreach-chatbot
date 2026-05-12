@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   onClose: () => void;
@@ -24,14 +25,16 @@ export function ChatHeader({ onClose }: Props) {
           Genelde 1 dakika icinde cevaplar
         </p>
       </div>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         onClick={onClose}
-        className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-2 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
         aria-label="Sohbeti kapat"
+        className="text-slate-400 hover:text-slate-700 hover:bg-slate-100"
       >
         <X className="size-4" />
-      </button>
+      </Button>
     </header>
   );
 }

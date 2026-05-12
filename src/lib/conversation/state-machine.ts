@@ -22,7 +22,15 @@ import {
 import type { ConversationState, LeadData, QuickReply, Step, UIMessage } from "./types";
 import { PAYLOAD } from "./payloads";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+/**
+ * Ayni step'te kac kere clarify dondurursek soft_abandoned'e gecelim.
+ *  - 0. deneme (ilk yanlis): yumusak clarify
+ *  - 1. deneme (ikinci yanlis): yumusak clarify (varied)
+ *  - 2. deneme (ucuncu yanlis): SOFT ABANDON — "hazir oldugunuzda buradayiz"
+ */
+export const MAX_CLARIFY_ATTEMPTS = 2;
 
 const VALID_INTENTS: Intent[] = ["demo", "pricing", "integration", "support", "other"];
 const VALID_VOLUMES: Volume[] = ["<500", "500-5k", "5k-50k", "50k+"];
@@ -43,7 +51,11 @@ export type StepResult =
   | { kind: "branch"; nextStep: Step; updates: Partial<LeadData> }
   | { kind: "clarify"; botMessage: string }
   | { kind: "submit"; updates: Partial<LeadData> }
-  | { kind: "fallback" };
+  | { kind: "fallback" }
+  /** Kullanici N. kez bos/random cevap verdi — Aylin yumusakca cikis sunuyor. */
+  | { kind: "soft_abandon" }
+  /** soft_abandoned step'inden manuel reset isteniyor. */
+  | { kind: "reset" };
 
 export interface UserInput {
   text: string;
@@ -51,8 +63,30 @@ export interface UserInput {
   payload?: string;
 }
 
+export interface HandleOptions {
+  /**
+   * Su anki step'te kac kez clarify dondurulmus. Caller (Chatbot.tsx) tutar
+   * ve her clarify'da +1, advance/branch'da 0'a reset eder.
+   * MAX_CLARIFY_ATTEMPTS'a ulasinca state machine clarify yerine soft_abandon doner.
+   */
+  clarifyAttempts?: number;
+}
+
 /** Belirli bir step + kullanici input'u icin sonraki durumu hesaplar. */
-export function handleUserInput(step: Step, input: UserInput): StepResult {
+export function handleUserInput(
+  step: Step,
+  input: UserInput,
+  opts: HandleOptions = {},
+): StepResult {
+  // Caller'in tuttugu clarify retry sayisi MAX'a ulasinca,
+  // step machine clarify yerine soft_abandon sinyali verir — Chatbot.tsx
+  // bu sinyali yakalayip soft_abandoned step'ine gecisi tetikler.
+  const attempts = opts.clarifyAttempts ?? 0;
+  const clarifyOrAbandon = (botMessage: string): StepResult =>
+    attempts >= MAX_CLARIFY_ATTEMPTS
+      ? { kind: "soft_abandon" }
+      : { kind: "clarify", botMessage };
+
   switch (step) {
     case "greeting": {
       // 1) Quick reply ile intent geldi -> direkt advance
@@ -61,19 +95,15 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
       }
       // 2) Serbest metin: sadece selamlama mi? -> kullanicıyı niyet seçimine geri yonlendir
       if (isPureGreeting(input.text)) {
-        return {
-          kind: "clarify",
-          botMessage:
-            "Merhaba 👋 Size nasıl yardımcı olabileceğimi anlamak için aşağıdaki seçeneklerden birini işaretler misiniz?",
-        };
+        return clarifyOrAbandon(
+          "Merhaba 👋 Size nasıl yardımcı olabileceğimi anlamak için aşağıdaki seçeneklerden birini işaretler misiniz?",
+        );
       }
       // 3) Argo / dismissive ("naber kız" gibi) — nazikçe redirect, niyet sor
       if (isDismissive(input.text)) {
-        return {
-          kind: "clarify",
-          botMessage:
-            "Tanıştığımıza memnun oldum. Aşağıdaki seçeneklerden biriyle başlayalım mı?",
-        };
+        return clarifyOrAbandon(
+          "Tanıştığımıza memnun oldum. Aşağıdaki seçeneklerden biriyle başlayalım mı?",
+        );
       }
       // 4) Soru sorduysa -> Gemini fallback
       if (looksLikeQuestion(input.text)) {
@@ -90,16 +120,14 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     case "identity_name": {
       if (looksLikeQuestion(input.text)) return { kind: "fallback" };
       if (isDismissive(input.text)) {
-        return {
-          kind: "clarify",
-          botMessage:
-            "Bilgilerinizi saygıyla işliyoruz — sadece adınız yeterli, kısaca paylaşır mısınız?",
-        };
+        return clarifyOrAbandon(
+          "Bilgilerinizi saygıyla işliyoruz — sadece adınız yeterli, kısaca paylaşır mısınız?",
+        );
       }
       const parsed = parseName(input.text);
       if (!parsed.ok) {
         // Refusal / junk / format hata mesajları validation.ts'den geliyor — daha duyarlı
-        return { kind: "clarify", botMessage: parsed.error };
+        return clarifyOrAbandon(parsed.error);
       }
       return { kind: "advance", nextStep: "identity_company", updates: { name: parsed.value } };
     }
@@ -107,14 +135,13 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     case "identity_company": {
       if (looksLikeQuestion(input.text)) return { kind: "fallback" };
       if (isDismissive(input.text)) {
-        return {
-          kind: "clarify",
-          botMessage: "Tek kelime şirket adı yeterli — örnek: 'Acme' veya 'Bireysel'.",
-        };
+        return clarifyOrAbandon(
+          "Tek kelime şirket adı yeterli — örnek: 'Acme' veya 'Bireysel'.",
+        );
       }
       const parsed = parseCompany(input.text);
       if (!parsed.ok) {
-        return { kind: "clarify", botMessage: parsed.error };
+        return clarifyOrAbandon(parsed.error);
       }
       return { kind: "advance", nextStep: "identity_email", updates: { company: parsed.value } };
     }
@@ -122,10 +149,7 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
     case "identity_email": {
       const parsed = parseEmail(input.text);
       if (!parsed.ok) {
-        return {
-          kind: "clarify",
-          botMessage: parsed.error,
-        };
+        return clarifyOrAbandon(parsed.error);
       }
       const { email, isPersonal } = parsed.value;
       if (isPersonal) {
@@ -160,16 +184,13 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
             updates: { email, emailIsPersonal: false },
           };
         }
-        return {
-          kind: "clarify",
-          botMessage:
-            "Bu da kisisel bir adres gibi gorunuyor. Sirket e-postaniz var mi? Yoksa az onceki adresle devam edelim.",
-        };
+        return clarifyOrAbandon(
+          "Bu da kisisel bir adres gibi gorunuyor. Sirket e-postaniz var mi? Yoksa az onceki adresle devam edelim.",
+        );
       }
-      return {
-        kind: "clarify",
-        botMessage: "Anlayamadim — devam mi edelim, yoksa baska bir e-posta mi yazacaksiniz?",
-      };
+      return clarifyOrAbandon(
+        "Anlayamadim — devam mi edelim, yoksa baska bir e-posta mi yazacaksiniz?",
+      );
     }
 
     case "qualification_volume": {
@@ -185,11 +206,9 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
       if (guess) {
         return { kind: "advance", nextStep: "qualification_tool", updates: { volume: guess } };
       }
-      return {
-        kind: "clarify",
-        botMessage:
-          "Asagidaki secenekler arasindan size en yakin olani isaretler misiniz?",
-      };
+      return clarifyOrAbandon(
+        "Asagidaki secenekler arasindan size en yakin olani isaretler misiniz?",
+      );
     }
 
     case "qualification_tool": {
@@ -203,7 +222,7 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
       if (looksLikeQuestion(input.text)) return { kind: "fallback" };
       const parsed = parseCurrentTool(input.text);
       if (!parsed.ok) {
-        return { kind: "clarify", botMessage: parsed.error };
+        return clarifyOrAbandon(parsed.error);
       }
       return { kind: "advance", nextStep: "timeline", updates: { currentTool: parsed.value } };
     }
@@ -215,10 +234,9 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
       if (isTimeline(input.payload)) {
         return { kind: "advance", nextStep: "summary", updates: { timeline: input.payload } };
       }
-      return {
-        kind: "clarify",
-        botMessage: "Asagidaki secenekler isinizi kolaylastirir, birini secebilirsiniz.",
-      };
+      return clarifyOrAbandon(
+        "Asagidaki secenekler isinizi kolaylastirir, birini secebilirsiniz.",
+      );
     }
 
     case "summary": {
@@ -227,20 +245,30 @@ export function handleUserInput(step: Step, input: UserInput): StepResult {
       }
       if (input.payload === PAYLOAD.EDIT) {
         // Faz 1 kapsaminda basit tutuyoruz — edit akisi henuz yok.
-        return {
-          kind: "clarify",
-          botMessage:
-            "Hangi bilgiyi guncellemek istersiniz? Su an icin yeniden baslamak en kolayi — sayfayi yenileyebilirsiniz.",
-        };
+        return clarifyOrAbandon(
+          "Hangi bilgiyi guncellemek istersiniz? Su an icin yeniden baslamak en kolayi — sayfayi yenileyebilirsiniz.",
+        );
       }
-      return {
-        kind: "clarify",
-        botMessage: "Onayliyor musunuz? 'Evet, gonder' butonuna basabilirsiniz.",
-      };
+      return clarifyOrAbandon(
+        "Onayliyor musunuz? 'Evet, gonder' butonuna basabilirsiniz.",
+      );
     }
 
     case "submitted":
       return { kind: "fallback" };
+
+    case "soft_abandoned": {
+      // Bu step'ten tek cikis: kullanicinin manuel reset istemesi.
+      if (input.payload === PAYLOAD.RESET) {
+        return { kind: "reset" };
+      }
+      // Diger input'lar: ayni mesaji + reset butonu tekrar gosterilir.
+      return {
+        kind: "clarify",
+        botMessage:
+          "Hazır olduğunuzda 'Yeni sohbet başlat' butonuyla devam edebiliriz 🙏",
+      };
+    }
   }
 }
 
@@ -271,6 +299,7 @@ export function createInitialState(): ConversationState {
     leadData: {},
     startedAt: now,
     lastActivityAt: now,
+    clarifyAttempts: 0,
   };
 }
 
@@ -299,6 +328,53 @@ export function buildUserUIMessage(content: string): UIMessage {
 /** Clarify durumunda quick reply'lari korumak icin: ayni step icin tekrar quick replies uretir. */
 export function quickRepliesForStep(step: Step, lead: LeadData): QuickReply[] | undefined {
   return botMessageForStep(step, lead).quickReplies;
+}
+
+/**
+ * Step -> hangi leadData alani dolarsa "tamamlandi" sayilir eslestirmesi.
+ * Slot extraction sonrasi auto-advance icin kullaniliyor; null olanlar dallanma
+ * veya ozet stepleri (otomatik atlanamaz).
+ */
+const STEP_FILLED_BY: Record<Step, keyof LeadData | null> = {
+  greeting: "intent",
+  identity_name: "name",
+  identity_company: "company",
+  identity_email: "email",
+  identity_email_confirm_personal: null,
+  qualification_volume: "volume",
+  qualification_tool: "currentTool",
+  timeline: "timeline",
+  summary: null,
+  submitted: null,
+  soft_abandoned: null,
+};
+
+const STEP_ORDER: Step[] = [
+  "greeting",
+  "identity_name",
+  "identity_company",
+  "identity_email",
+  "qualification_volume",
+  "qualification_tool",
+  "timeline",
+  "summary",
+];
+
+/**
+ * Verilen step'ten itibaren ilk "doldurulmamis" step'i bul.
+ * Slot extraction sonrasi: name, company, intent zaten leadData'daysa,
+ * direkt qualification_volume'a atla.
+ */
+export function findNextEmptyStep(fromStep: Step, lead: LeadData): Step {
+  const startIdx = Math.max(0, STEP_ORDER.indexOf(fromStep));
+  for (let i = startIdx; i < STEP_ORDER.length; i++) {
+    const step = STEP_ORDER[i]!;
+    const field = STEP_FILLED_BY[step];
+    if (field === null) continue; // dallanma/ozet — atlanamaz
+    const value = lead[field];
+    if (value === undefined || value === null || value === "") return step;
+  }
+  return "summary";
 }
 
 function makeId(): string {

@@ -1,20 +1,20 @@
-# Requirements Checklist — Brief vs. Deliverable
+# Requirements Checklist — Ürün gereksinim ↔ teslimat eşleştirmesi
 
-> NextReach'in PRD'sindeki her madde -> bizim teslim edecegimiz karsiligi.
-> Bu, gozden bir sey kacirmamak icin.
+> Ürün gereksinim setindeki her madde → kod karşılığı.
+> Skopu görmezden geldiğimiz nokta olmasın diye.
 
 ---
 
-## A. ZORUNLU — Brief'te "in scope" diye gecen her sey
+## A. Zorunlu — "in scope" maddeler
 
-| # | Brief'teki istek | Bizim cozumumuz | Dosya/Bilesen | Durum |
+| # | Gereksinim | Çözüm | Dosya/Bileşen | Durum |
 |---|---|---|---|---|
-| A1 | Landing page'de tetiklenen chatbot arayuzu | `Chatbot.tsx` komponenti (state machine + Gemini fallback), Hero CTA `openChatbot()` ile acilir | `src/components/chatbot/`, `src/components/landing/`, `src/app/page.tsx` | ✅ |
-| A2 | Olusan iletisim taleplerinin saklanmasi | Supabase `leads` tablosu, `POST /api/leads` (Zod + scoring + AI ozet + spam savunmasi) | `supabase/schema.sql`, `src/app/api/leads/route.ts` | ✅ |
-| A3 | Ekibin talepleri listeleyebildigi basit ic gorunum | `/admin?key=...` sayfasi: KPI + filtre + tablo + detay drawer + status PATCH | `src/app/admin/page.tsx`, `src/components/admin/` | ✅ |
-| A4 | Mobil uyumlu | Tailwind responsive: chatbot bottom-sheet, admin tablonun kart varyanti, hero grid yenidenduzeni | tum `src/components/` | ✅ |
-| A5 | Calisan, deploy edilmis link | Vercel deploy (env'leri Vercel'e tasi + import) | Vercel | ⏳ deploy bekliyor |
-| A6 | README (lokalde calistirma, teknoloji secimi, kisitlar, muglak yerlerin yorumu) | `README.md`, "Yapildi/Yapilamadi" + tech rationale tablosu + product decisions | `README.md` | ✅ |
+| A1 | Landing page'de tetiklenen chatbot arayüzü | `Chatbot.tsx` komponenti (state machine + Gemini fallback), Hero CTA `openChatbot()` ile açılır | `src/components/chatbot/`, `src/components/landing/`, `src/app/page.tsx` | ✅ |
+| A2 | Oluşan iletişim taleplerinin saklanması | Supabase `leads` tablosu, `POST /api/leads` (Zod + scoring + AI özet + spam savunması) | `supabase/schema.sql`, `src/app/api/leads/route.ts` | ✅ |
+| A3 | Ekibin talepleri listeleyebildiği basit iç görünüm | `/admin?key=...` sayfası: KPI + filtre + tablo + detay drawer + status PATCH | `src/app/admin/page.tsx`, `src/components/admin/` | ✅ |
+| A4 | Mobil uyumlu | Tailwind responsive: chatbot bottom-sheet, admin tablonun kart varyantı, hero grid yenidendüzeni | tüm `src/components/` | ✅ |
+| A5 | Çalışan, deploy edilmiş link | Vercel deploy (env'leri Vercel'e taşı + import) | Vercel | ⏳ deploy bekliyor |
+| A6 | README (lokalde çalıştırma, teknoloji seçimi, kısıtlar, muğlak yerlerin yorumu) | `README.md`, "Yapıldı/Yapılamadı" + tech rationale tablosu + product decisions | `README.md` | ✅ |
 
 ---
 

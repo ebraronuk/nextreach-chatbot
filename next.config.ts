@@ -29,9 +29,11 @@ const SECURITY_HEADERS = [
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      // Fonts: next/font/google build-time self-host ediyor, runtime'da Google'a istek yok.
+      // fonts.googleapis.com / fonts.gstatic.com izinleri kaldirildi — attack surface kucult.
+      "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
-      "font-src 'self' data: https://fonts.gstatic.com",
+      "font-src 'self' data:",
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
@@ -50,6 +52,15 @@ const nextConfig: NextConfig = {
         headers: SECURITY_HEADERS,
       },
     ];
+  },
+  webpack: (config) => {
+    // .md dosyalarini build-time'da string olarak inline et. Bu sayede
+    // prompts/*.md hem Node hem Edge runtime'da (fs olmadan) okunabilir.
+    config.module.rules.push({
+      test: /\.md$/,
+      type: "asset/source",
+    });
+    return config;
   },
 };
 

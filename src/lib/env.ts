@@ -64,12 +64,24 @@ export const clientEnv = parseClient();
 // ---------------------------------------------------------------------------
 // Server env — lazy + cached, server-only
 // ---------------------------------------------------------------------------
+const optionalNonEmpty = z.preprocess(
+  emptyToUndefined,
+  z.string().min(1).optional(),
+);
+
 const serverSchema = clientSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().min(1).default("gemini-2.5-flash"),
   ADMIN_SECRET_KEY: z.string().min(8, "ADMIN_SECRET_KEY en az 8 karakter olmali"),
   HOT_LEAD_WEBHOOK_URL: optionalUrl,
+  /**
+   * Upstash Redis — distributed rate limit icin opsiyonel.
+   * Ikisi birden tanimliysa Upstash adapter devreye girer; biri yoksa
+   * in-memory fallback (dev ve tek-instance icin yeterli) kullanilir.
+   */
+  UPSTASH_REDIS_REST_URL: optionalUrl,
+  UPSTASH_REDIS_REST_TOKEN: optionalNonEmpty,
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

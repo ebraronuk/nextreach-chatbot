@@ -68,7 +68,7 @@ curl "http://localhost:3000/api/leads?key=<ADMIN_SECRET_KEY>"
 7. [Güvenlik / spam savunması](#güvenlik--spam-savunması)
 8. [Test ve doğrulama](#test-ve-doğrulama)
 9. [PRD'deki muğlak noktaları nasıl yorumladım](#prddeki-muğlak-noktaları-nasıl-yorumladım)
-10. [6 saatte yapamadıklarım ve +zamanım olsaydı](#6-saatte-yapamadıklarım-ve-zamanım-olsaydı)
+10. [Sonraki iterasyonlar — production'a giderken eklenecek katmanlar](#sonraki-iterasyonlar--productiona-giderken-eklenecek-katmanlar)
 11. [Geliştirme süreci hakkında not (AI kullanımı)](#geliştirme-süreci-hakkında-not-ai-kullanımı)
 12. [Toplam süre](#toplam-süre)
 
@@ -100,6 +100,8 @@ Gerekli env değerleri:
 | `GEMINI_MODEL` | sabit | `gemini-2.5-flash` |
 | `ADMIN_SECRET_KEY` | sen üret | Admin paneline giriş için query-param secret |
 | `HOT_LEAD_WEBHOOK_URL` | opsiyonel | Skoru 80+ olan lead için Slack/Discord webhook |
+| `UPSTASH_REDIS_REST_URL` | opsiyonel | Upstash Redis REST endpoint — distributed rate limit (yoksa in-memory) |
+| `UPSTASH_REDIS_REST_TOKEN` | opsiyonel | Upstash Redis REST auth token |
 | `NEXT_PUBLIC_APP_NAME` | sabit | `NextReach` |
 | `NEXT_PUBLIC_APP_URL` | deploy sonrası | OG metadata + robots.txt için |
 
@@ -158,6 +160,7 @@ npm run test:watch # watch mode
 │                  NEXT.JS SERVER (Vercel Edge + Node)                 │
 │                                                                       │
 │  POST /api/chat          → Gemini streaming (Edge runtime)            │
+│  POST /api/slots         → Gemini slot extraction (tool loop)         │
 │  POST /api/leads         → Lead kaydet (Node runtime)                 │
 │  GET  /api/leads?key=    → Admin için listele                         │
 │  PATCH /api/leads?key=   → Status güncelle                            │
@@ -214,6 +217,36 @@ botlarında mantıklı (Q&A, doküman arama) ama yapılandırılmış lead topla
 için fazla riskli — hem teknik (data quality) hem operasyonel (cost,
 quota, downtime) açıdan.
 
+### Tool loop — hibrit yaklaşımın akıllı tarafı
+
+Scripted akış + LLM fallback'in üzerine **slot extraction tool loop'u** ekledim. Kullanıcı bir off-script mesaj attığında ([src/components/chatbot/Chatbot.tsx](src/components/chatbot/Chatbot.tsx)'deki `playGeminiFallback`):
+
+1. **`/api/chat`** → kullanıcının sorusuna streaming cevap üretir (mevcut davranış)
+2. **`/api/slots`** → aynı mesajdan **isim, şirket, email, intent, hacim, timeline** gibi alanları paralel olarak çıkarır (Gemini structured output, Zod ile valide)
+3. İki sonuç birlikte beklenir, slot'lar `leadData`'ya merge edilir
+4. State machine helper'ı [`findNextEmptyStep`](src/lib/conversation/state-machine.ts) ile dolan slot'ların atlanması gereken step'leri tespit eder
+5. Bot otomatik olarak doğru sıradaki sonraki soruyu sorar
+
+**Pratik etkisi:**
+```
+USER:  "Merhaba ben Ahmet, Acme'den, demo görmek istiyorum"
+       (3 slot: name + company + intent)
+       
+ÖNCE:  "Harika. Sizi tanıyabilir miyim — adınız?"  ❌ kullanıcı zaten söyledi
+ŞİMDİ: "Demo isteğiniz için harika — gerçek verilerinizle gösterim yapıyoruz."
+       + arkasından otomatik
+       "Aylık yaklaşık kaç sipariş işliyorsunuz?"  ✓ 3 step birden atlandı
+```
+
+**Neden her mesaja LLM koymadım — bilinçli sınırlama:**
+- **Token maliyeti:** Her tur LLM çağırırsam konuşma başına 8-10x maliyet. Free tier (Gemini 2.5 Flash, 250 RPD) demo için zaten dar. Hibrit yaklaşımda konuşma başına ortalama 1-2 LLM çağrısı.
+- **Latency:** Scripted yanıt <50ms; LLM çağrısı 200-500ms. Her step LLM olursa "yazıyor..." beklemeleri kullanıcıyı yorar.
+- **İzlenebilirlik (observability):** LangFuse / Langsmith kurulu değil. Her LLM çağrısının trace'ini saklamadan production'da debug edilemez. "Aylin neden saçma cevap verdi?" sorusunun cevabı yok.
+- **Hallucination yüzeyi:** Pure-AI'da LLM yanlış parametreyle `submit_lead` çağırırsa veya fiyat söyleme yasağını ihlal ederse fark etmek zor. Hibrit'te LLM'in scope'u dar; çoğu işi state machine yapıyor.
+- **Eval suite yokluğu:** 6 saatte 30+ senaryolu LLM-as-judge test seti kurulamaz. Test edilemeyen davranışı production'a koymadım.
+
+Sonuç: **kontrolün gerektiği yer scripted, esnekliğin gerektiği yer LLM** — her ikisinin trade-off'unu fiyatına göre uyguladım.
+
 ### Klasör yapısı
 ```
 src/
@@ -222,25 +255,38 @@ src/
     page.tsx                # Landing
     robots.ts               # /robots.txt (admin + api crawl'a kapalı)
     admin/page.tsx          # Server Component, key + RLS bypass
+    error.tsx               # Layout-level error boundary
+    global-error.tsx        # Root error boundary (layout patlarsa)
     api/
       chat/route.ts         # Gemini streaming (Edge)
-      leads/route.ts        # POST + GET + PATCH (Node)
+      slots/route.ts        # Slot extraction (tool loop tarafı)
+      leads/route.ts        # Thin HTTP — POST + GET + PATCH (services'e devreder)
   components/
     chatbot/                # Chatbot + alt komponentler + ProactiveBubble
     admin/                  # Dashboard + tablo + drawer + filtreler
     landing/                # Hero, Features (bento), FAQ, Footer, ...
   lib/
-    ai/                     # Gemini client + summary fonksiyonu
+    ai/                     # Gemini client + summary + extract-slots
     api/                    # submitLead köprüsü (client → /api/leads)
-    conversation/           # state-machine, scripts, storage, validation
+    conversation/           # state-machine, scripts, storage, validation, payloads
     db/                     # Supabase clients (browser vs server)
     scoring/                # Lead scoring algoritması
+    services/               # Business logic — leads, rate-limit (Upstash+in-memory)
     analytics.ts            # Vendor-agnostic track() adapter
-    env.ts                  # Typesafe env wrapper
-    utils.ts                # cn(), hashIp() vs.
+    env.ts                  # Typesafe env wrapper (Zod fail-fast)
+    server-utils.ts         # hashIp gibi server-only utilities
+    utils.ts                # cn() — client-safe
+  components/
+    chatbot/                # Chatbot + alt komponentler + ProactiveBubble
+    admin/                  # Dashboard + tablo + drawer (Sheet) + filtreler
+    landing/                # Hero, Features (bento), FAQ, Footer, ...
+    ui/                     # shadcn/ui primitives — Button, Badge, Sheet
   constants/                # Magic numbers, label sözlükleri, email domains
   types/
     lead.ts                 # Lead, ChatMessage, Volume, Timeline tipleri
+    markdown.d.ts           # .md import için TypeScript module declaration
+prompts/
+  chatbot-system.md         # Aylin'in system prompt'u (build-time inline)
 supabase/
   schema.sql                # leads tablosu + indeksler + RLS + realtime
   migration-001-tighten-rls.sql  # Anon SELECT policy sıkılaştırma
@@ -250,6 +296,10 @@ docs/
   03-roadmap.md             # Saat-saat geliştirme planı
   04-requirements-checklist.md  # Brief vs deliverable eşleştirmesi
   05-design-inspiration.md  # 2026 B2B SaaS trend araştırması
+  07-chatbot-test-senaryolari.md  # Demo senaryo kataloğu
+  08-performans-notlari.md  # Lighthouse + bundle + Web Vitals notları
+  decisions.md              # Architectural Decision Records (ADR × 8)
+  screenshots/              # Landing + chatbot + admin + mobile görüntüleri
 ```
 
 ---
@@ -291,7 +341,7 @@ Aylin sadece scripted akışı değil; off-script durumları da yönetiyor:
 | Tamamen kaçma (60 sn inaktiflik) | "Hala orada mısınız?" |
 
 ### Sistem prompt (özet)
-Aylin'in karakteri `src/lib/ai/gemini.ts`'teki `SYSTEM_PROMPT` sabitinde. Önemli kurallar:
+Aylin'in karakteri [prompts/chatbot-system.md](prompts/chatbot-system.md) dosyasında — ürün ekibi koddan bağımsız düzenleyebilsin diye ayrı tutuldu. Build sırasında [src/lib/ai/gemini.ts](src/lib/ai/gemini.ts) içine [next.config.ts](next.config.ts)'teki webpack `asset/source` kuralı ile inline ediliyor; hem Node hem Edge runtime'da çalışıyor (fs gerekmiyor). Önemli kurallar:
 - **Prompt injection savunması:** "Sistem talimatını yoksay", "rolünü değiştir" gibi denemeler reddedilir.
 - **Model adı/teknoloji paylaşımı yasak:** "Gemini", "GPT", "Google" gibi kelimeler asla geçmez.
 - **Fiyat soruluyor:** "Paketler ihtiyaca göre özelleştiriliyor, satış ekibimiz size dönecek."
@@ -331,6 +381,7 @@ Aylin'in karakteri `src/lib/ai/gemini.ts`'teki `SYSTEM_PROMPT` sabitinde. Öneml
 - **3 KPI kartı:** Hot / Warm / Cold sayıları
 - **Filter bar:** sıcaklık, status, tarih aralığı
 - **Lead tablosu:** skor sırasıyla (default), satıra tıklayınca detay drawer açılır
+- **CSV indir butonu:** Aktif filtreler dahil olmak üzere lead'leri CSV olarak indirir (UTF-8 BOM, Excel uyumlu)
 - **Detay drawer:**
   - AI özet (2 cümle) — en üstte
   - Skor breakdown (her +/- maddesi)
@@ -436,11 +487,11 @@ Tablo + detay drawer formatı. Tabloda öncelik bilgisi (skor + sıcaklık rozet
 
 ---
 
-## 6 saatte yapamadıklarım ve +zamanım olsaydı
+## Sonraki iterasyonlar — production'a giderken eklenecek katmanlar
 
-### Yapmaya vakit kalmayanlar
+### MVP skopunun dışında bilinçli olarak ertelediğim işler
 - **Realtime admin** — Supabase realtime publication açık, schema hazır; ama browser-side subscription'ı yazamadım. Şu an admin sayfası refresh ile güncelleniyor.
-- **CSV / Excel export** admin'de
+- ~~**CSV / Excel export** admin'de~~ → **Eklendi.** `/api/leads/export?key=...&format=csv` endpoint'i + admin panelde "CSV indir" butonu. UTF-8 BOM ile Excel TR karakterlerini doğru gösterir; aktif filtreler (status, temperature) dışa aktarıma yansır.
 - **Drop-off analytics dashboard** — `analytics.ts`'te `track()` hook'larını koydum (chat_step_entered eventleri atılıyor) ama görselleştirmeyi yapmadım.
 - **E2E test (Playwright)** — manuel test senaryolarını listeledim ama otomatize edemedim.
 - **Image optimization** + mock dashboard'a gerçek bir GIF eklemek
@@ -478,11 +529,13 @@ Bu beş sinyal ayrı ayrı zayıf, **birlikte kuvvetli**. Admin panelinde tek bi
 
 Bu beş katman tek seferde değil, sırayla devreye girer: önce "voice layer", sonra slot filling, sonra tool calling — her biri öncekinin üstüne sağlam bir adım.
 
+> **Notum — neden LLM-driven (tool-loop) mimariye baştan gitmedim:** Modern bir alternatif şu olurdu: Gemini'ye `submit_lead`, `validate_email`, `lookup_company` gibi tool'lar tanımlamak, konuşmanın tamamını LLM'in yönetmesine bırakmak, state machine'i ortadan kaldırmak. "Tool calling loop" denilen bu mimari 2025'in trendi ve daha "AI ürünü" hissi veriyor. Bilinçli olarak bu yola gitmedim çünkü LLM-driven bir konuşma motorunu production'a koymak için tek başına yetmiyor — yanına **eval suite (30+ senaryoluk LLM-as-judge testi), guardrail katmanı (LLM'in yasak çıktı üretmesini yakalayan filtre), observability altyapısı (LangFuse / Langsmith trace), retry/timeout politikası ve fallback davranış** gerekiyor. Bunlar olmadan "LLM bir gün yanlış parametreyle `submit_lead` çağırırsa ne olur?", "fiyat söyleme yasağı ihlal edilirse?", "tool sırasını şaşırırsa?" sorularının cevabı yok — sistem sessiz bir şekilde bozuk lead üretir. 6 saatlik hard limitte tercih ettiğim **test edilebilir, deterministik, deploy edilmiş, satış ekibinin hemen kullanabileceği bir MVP** oldu. Hibrit yol — scripted akış üstüne LLM voice layer + slot filling — bu sistemin doğal evrim yolu, mimari değişikliği değil eklemeli geliştirme; Pattern 2'deki katmanları sırayla devreye alarak buraya geçilir.
+
 ---
 
 #### 3) Üretim altyapısı — "vercel'e deploy ettim" değil "ölçeklenebilir bir sistem"
 
-- **Upstash Redis ile dağıtık rate limit.** Şu anki in-memory rate limit, Vercel'in serverless modelinde **her instance'da ayrı sayar** — kullanıcı pratikte üç değil dokuz submission yapabilir. Upstash, edge'e yakın bir Redis sağlar; `@upstash/ratelimit` paketiyle iki satır kod değişir, sayaç merkezi olur. Free tier küçük projeye yetiyor.
+- **Upstash Redis dağıtık rate limit — entegre edildi (opsiyonel).** Önceki in-memory rate limit Vercel'in serverless modelinde her instance'da ayrı sayıyordu (kullanıcı 3 değil 9 submission yapabilirdi). [src/lib/services/rate-limit.ts](src/lib/services/rate-limit.ts) içine adapter pattern ile **Upstash REST API tabanlı dağıtık rate limit** koydum. `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` env'leri set edilirse Upstash devreye girer; yoksa in-memory fallback çalışır. Yeni paket bağımlılığı yok (raw fetch).
 - **Observability — Sentry + LangFuse.** Sentry uygulama hatalarını yakalar; LangFuse (ya da Langsmith) her LLM çağrısının trace'ini, latency'sini, token kullanımını ve "kalite skoru"nu takip eder. Bir gün biri "chatbot saçma cevap verdi" derse 30 saniyede o konuşmayı bulup nedenini görürsün. Bu olmadan AI ürünleri yönetilmez.
 - **Eval suite — her commit'te LLM testi.** 30-50 senaryolu bir test seti yazardım: happy path, troll, dismissive, dolandırıcı, dil karışımı, prompt injection. CI'da her commit'te LLM-as-judge skor verir; ortalama düşerse build kırılır. Prompt değiştirip "şimdi nasıl?" diye tahmin etmek yerine ölçerek geliştirirsin.
 - **Supabase Auth ile gerçek admin auth.** Query-param secret demo için yeterli ama production için zayıf. Magic-link tabanlı (NextAuth ya da doğrudan Supabase Auth) kurum içi giriş kurardım. Admin sayfaları middleware ile session check eder.
@@ -492,7 +545,7 @@ Bu beş katman tek seferde değil, sırayla devreye girer: önce "voice layer", 
 
 #### 4) Kod kalitesi ve takım çalışmasına hazırlık
 
-- **Chatbot.tsx'i parçalara böl.** 540 satırlık tek dosya içinde modal state, focus trap, state machine driver, streaming reader, honeypot, analytics — altı sorumluluk var. `useChatbotState`, `useFocusTrap`, `useGeminiStream` hook'larına ayırınca görsel komponent 150 satırın altına iner; test edilebilir hale gelir.
+- **Chatbot.tsx'in kalan hook'larını çıkar.** Focus trap zaten [`useFocusTrap`](src/components/chatbot/hooks/useFocusTrap.ts) ile ayrıldı (kod hacmi ~50 satır azaldı). Sıradaki adım `useChatbotState` (state machine driver + localStorage sync) ve `useGeminiStream` (streaming + slot extraction merge) hook'larını çıkarmak — görsel komponent 150 satırın altına iner ve React Testing Library ile her hook bağımsız test edilebilir.
 - **State management → Zustand.** Şu anki `useState × 5 + useRef × 4 + manuel localStorage senkronu` örgüsü, "React state async closure'larda yetersiz kalıyor" işaretidir (stateRef pattern'inin varlık sebebi). Zustand'a geçince store'u tek başına test edebilir, `persist` middleware ile localStorage'ı bedava alırsın.
 - **Conversation flow config dosyası.** Akış ve mesajlar bugün kod içinde sabit. Ürün ekibi "şu adıma bir uyarı cümlesi ekleyelim" derse developer'a gelmek zorunda. JSON ya da YAML config'e taşınınca pazarlama ekibi bağımsız çalışır.
 - **Supabase schema → TypeScript codegen.** `LeadRow` tipi elle yazılıyor; bir kolon eklenince TS'in haberi olmuyor. `supabase gen types typescript` ile schema'dan otomatik üretmek schema drift'i sıfırlar.
@@ -513,19 +566,45 @@ Bu beş katman tek seferde değil, sırayla devreye girer: önce "voice layer", 
 
 Brief, AI asistan kullanımına izin veriyordu.
 
-**Tüm proje boyunca pair programmer olarak Claude Code kullandım.** Önceki deneyimlerimden Codex'i de denedim, ama Claude'un mimari ve genel kurguya daha hâkim olduğunu, kod yazarken daha bütüncül baktığını gözlemledim — o yüzden bu projede Claude'u tercih ettim.
+Tüm proje boyunca pair-programmer olarak Claude Code kullandım — mimari kararlar ve dosya-arası tutarlılıkta diğer alternatiflere göre güçlü buldum. AI'nın ürettiği kodu eleştirel okumadan kabul etmedim; her mimari kararda "alternatif neydi, neden bu?" sorusunu kendime sordum (bu kararların kaydı [docs/decisions.md](docs/decisions.md)'de 8 ADR olarak).
 
-**Bu benim ilk gerçek web projem.** TypeScript ve Next.js'e bu görev sırasında öğrenerek girdim. Kod yazarken her satırı anlamaya çalıştım — özellikle state machine pattern, RLS, Server vs Client Component ayrımı ve Zod-Next.js integration gibi konuları aktif olarak çalıştım. AI tarafından üretilen kodu kabul ederken her zaman "neden böyle?" diye sordum; örneğin Chatbot.tsx'teki `stateRef` kullanımının stale closure problemini önlemek için olduğunu, `submitLead` helper'ının fire-and-forget pattern'ini bilinçli olarak şu sebeple seçtiğimizi (UX'i bloklamamak için) ben karar verdim.
+### Çözdüğüm mühendislik problemleri
 
-**Mimari ve ürün kararlarını ben verdim:**
-- Aylin karakteri ve 5 adımlı akış tasarımı
+Brief'in 6 sorusunun ötesinde, geliştirme sırasında karşılaştığım ve bilinçli kararla çözdüğüm 8 spesifik problem:
+
+| # | Problem | Çözüm | Kabul ettiğim trade-off |
+|---|---|---|---|
+| 1 | Konuşma motorunda LLM'in deterministik çıktı garantisi yok; saf scripted ise off-script soruları cevaplayamıyor | **Hibrit: state machine + LLM fallback + slot extraction tool loop** ([decisions.md ADR-001](docs/decisions.md), [ADR-007](docs/decisions.md)) | İki kod yolu → test yüzeyi 2x; karşılığında her lead'in temiz veriyle kaydedilmesi garantili (86 unit test) |
+| 2 | Kullanıcı tek mesajda 3 slot verdiğinde ("Ben Ahmet, Acme'den, demo istiyorum") state machine her birini ayrı sorgulayıp UX'i bozuyor | **Gemini structured output ile slot extraction**, `findNextEmptyStep` helper'ı ile auto-advance — 3 step birden atlanıyor ([extract-slots.ts](src/lib/ai/extract-slots.ts)) | Off-script turunda 2 LLM çağrısı (cevap + extraction); sadece off-script branch'inde devreye giriyor |
+| 3 | Vercel serverless'ta in-memory rate limit instance'lar arası paylaşılmıyor — kullanıcı 3 değil 9 submission yapabilir | **Adapter pattern**: `RateLimiter` interface + in-memory ve Upstash REST iki backend, env'e göre runtime'da seçim ([rate-limit.ts](src/lib/services/rate-limit.ts)) | Edge bursting riski (pencere kesişimi); 3/10dk kuralında ihmal edilebilir |
+| 4 | "fdgsdfg" gibi rastgele tuş kombinasyonları gerçek isim sandığı için spam lead'ler geçiyor | **Türkçe fonotik analiz** (sesli oranı %15 eşiği, max ardışık sessiz harf ≥5, klavye satırı pattern ≥5) — `looksLikeGibberish` 33 test ile korunuyor ([validation.ts](src/lib/conversation/validation.ts)) | Atipik isimler için soft-reject (kullanıcı yeniden istenir); "Wright" gibi Türkçe-dışı kısa isimlerde edge case |
+| 5 | İlk schema'da realtime için anon role'e SELECT verdiğimden tüm lead'leri okunabilir bırakmıştım — RLS leak | **`migration-001-tighten-rls.sql`** ile anon SELECT kaldırıldı, admin sayfası server-side service_role ile çekiyor | Browser-side realtime subscribe çalışmıyor; "Yenile" + window-focus auto-refresh ile telafi |
+| 6 | AI özet üretimi 2-5 sn sürüyor, kullanıcı submit sonrası bekleyemez | **Next.js `after()`** ile fire-and-forget — insert response anında dönüyor, AI özet ve hot-lead webhook arka planda UPDATE atıyor ([services/leads.ts](src/lib/services/leads.ts)) | Webhook insert'ten sonra geliyor (anlık değil, saniyeler içinde); `void Promise` yerine `after()` tercih edildi çünkü serverless'ta runtime kapanmadan önce işlemi bitirmeyi garanti eder |
+| 7 | "Fiyat ne kadar?" gibi sorular scripted akışı kırıyor; saf LLM'e geçmek kontrolü kaybetmek | **Off-script tespit** (Türkçe soru kalıpları + kimlik soruları + infix `mı/mi/mu`) → Gemini streaming cevap → aynı step'in quick reply'larına dönüş, akış kopmaz | Tespit kuralları regex listesinde, yeni kalıp eklemek manuel iş; eval suite olmadan davranış değişikliklerini izlemek zor |
+| 8 | Brief'in tek satır "kötü niyetli kullanım için ne yaparsın?" sorusu — saldırı yüzeyi geniş | **12 katmanlı savunma**: honeypot + IP hash + rate limit + disposable email blacklist + Türkçe refusal/dismissive/gibberish + prompt injection guard + CSP + HSTS + Permissions-Policy + RLS + RLS migration + kısa konuşma cezası | Katmanlar tek başına zayıf, birlikte etkili; Sentry/observability olmadan saldırı analizi reaktif kalıyor |
+
+### AI'yı pair-programmer olarak yönlendirdiğim örnekler
+
+AI hızlandırıcıydı; **karar verici** ben oldum. Aşağıdaki örnekler, AI'nın "böyle yapalım" dediği şeyleri ya reddettiğim ya da yönlendirdiğim anların listesi:
+
+1. **Husky + lint-staged + pre-commit hook'ları reddettim.** AI eklemek istedi; tek-kişilik bir takımda 6 saatlik teslimde net negatif ROI gördüm. Kaldırıldı.
+2. **`stateRef` pattern'ini ben istedim.** AI ilk versiyonda Chatbot.tsx'i `useState` ile yazdı; ben async callback'lerde stale closure problemini fark edip `useRef + stateRef` pattern'ini ekletm. Stream sırasında doğru state'e erişim için kritik.
+3. **Skor breakdown'ını JSONB'de saklamayı ben kararlaştırdım.** AI tek `score` kolonu önerdi; ben admin'de "neden bu skor?" sorusuna cevap için `score_breakdown jsonb` kolonu ekledim. Şimdi satış ekibi her +/- maddesini görüyor.
+4. **LLM-driven mimariye baştan gitmedim.** AI tool-loop tabanlı (Gemini her şeyi yönetir) bir yol önerdi; eval suite + guardrail altyapısı olmadan production'a koymanın riskli olduğunu görüp **scripted state machine + LLM fallback + slot extraction** hibrit yolunu seçtim. Bu kararı README'nin "Pattern A/B/C" bölümünde uzun açıkladım.
+5. **Türkçe-spesifik validation katmanını ben tasarladım.** AI Zod ile format kontrolü yeterli sandı; ben "naber kız", "olmaz", "hgdsghsdghdsü" gibi Türkçe-spesifik girdileri **fonotik + klavye-satırı + refusal/dismissive** pattern'leriyle ayrı bir katmana çektim. 33 unit test bu katmanı koruyor.
+6. **Rate limit'i service layer'a çekmeyi ben istedim.** AI in-memory bucket'ı `route.ts` içinde bıraktı; ben **adapter pattern + Upstash REST API ikinci backend**'i tasarlayıp `lib/services/rate-limit.ts`'e ayırdım. Env varsa Upstash, yoksa in-memory fallback.
+7. **Honeypot reject davranışını değiştirdim.** AI 400 dönmek istedi; ben "bot 400'ü görünce farklı taktik dener; sessizce 200 dönüp DB'ye yazmamak daha doğru" diyerek 200-and-silent-drop'a çevirdim.
+8. **RLS açığını fark ettim.** AI ilk schema'da anon role'e SELECT verdi (realtime için); ben Supabase URL + anon key bilen herkesin tüm lead'leri çekebileceğini görüp `migration-001-tighten-rls.sql` ile düzelttim. Açıkça kendi hatamı yakaladığım bir an.
+
+### Ürün ve mimari kararlarını ben verdim
+
+- Aylin karakteri ve 5 adımlı funnel tasarımı (`yeter noktası` 3. adım sonu — opsiyonel timeline)
 - Lead scoring algoritmasının 6 faktörü ve ağırlıkları
-- Admin paneli için tablo + detay drawer pattern'i
-- Gemini'yi sadece off-script durumlarda fallback olarak kullanma (kural-tabanlı çekirdek + AI esneklik) kararı
-- Spam savunmasının 12 katmanlı yaklaşımı
-- RLS güvenlik açığını fark edip migration ile düzeltmem
+- Admin paneli için tablo + detay drawer + filter bar pattern'i
+- Spam savunmasının 12 katmanlı yaklaşımı (brief'in tek satırı)
+- Tool loop'un sadece off-script fallback turunda devreye girmesi (her mesaja LLM koymamak)
 
-Kod yazımında AI bir hızlandırıcı oldu, ama hangi soruyu sorduğum ve hangi cevabı kabul ettiğim benim kararlarımdı.
+Kod yazımında AI bir hızlandırıcı oldu; **hangi soruyu sorduğum, hangi cevabı kabul ettiğim, hangi pattern'i reddettiğim** benim kararlarımdı.
 
 ---
 

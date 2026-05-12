@@ -1,7 +1,5 @@
 # Chatbot Test Senaryoları — "Aylin'e şunu sor, böyle cevaplasın"
 
-> Demo veya değerlendirme sırasında chatbot'un **gerçekten konuştuğunu**, sadece form doldurmadığını göstermek için hazırlanmış senaryo kataloğu.
->
 > Her senaryoda: **kullanıcı ne yazar → Aylin nasıl davranır → arka planda hangi katman devrede**.
 
 ---
@@ -183,16 +181,122 @@ AYLIN:        "Aldım ✓ Talebinizi ekibimize ilettim — 24 saat içinde size 
 
 ---
 
-## Demo sırasında değerlendiriciye söyleyebileceklerim
+## Kategori 10 — Tool loop / slot extraction
 
-> "Aylin sadece bir form değil — siz herhangi bir soru sorduğunuzda akıştan **kopmadan** cevap veriyor. Mesela tam isim verirken 'aslında fiyatınız ne?' diye sorabilirsiniz, Aylin önce fiyat politikamızı söyler, sonra isim sormaya geri döner. Hangi katman ne yapıyor: scripted akış öngörülebilirliği, Gemini doğallığı, validation katmanı 'naber kız'ı isim olarak almıyor, güvenlik katmanı honeypot ve rate limit ile spam'i süzüyor."
+Kullanıcı tek mesajda birden fazla bilgi paylaşırsa Aylin onları yakalayıp ilgili step'leri otomatik atlar.
+
+### Senaryo A — Tek nefes, 3 slot
+
+```
+USER: "Merhaba ben Ahmet, Acme'den, demo görmek istiyorum"
+
+Arkada olan:
+  1. State machine → bu serbest metin, niyet açık değil → fallback kararı
+  2. Client paralel: /api/chat (streaming) + /api/slots (Gemini JSON)
+  3. /api/slots döner: { name: "Ahmet", company: "Acme", intent: "demo" }
+  4. leadData merge → 3 alan dolu
+  5. findNextEmptyStep("greeting", merged) → "identity_email"
+  6. Auto-advance: bot ikinci bir mesaj atar — email sorusu
+
+AYLIN (1. mesaj — Gemini stream):
+  "Demo isteğiniz için harika. Gerçek verilerinizle bir gösterim hazırlayacağız."
+
+AYLIN (2. mesaj — otomatik, ~400ms sonra):
+  "Ekibimizin doğrudan dönüş yapabilmesi için iş e-postanız?"
+```
+
+**Beklenen:** Aylin "Adınız nedir?" SORMUYOR — çünkü zaten biliyor. Email sorusuna geçti. 3 step birden atlandı.
+
+### Senaryo B — Yarım slot
+
+```
+USER: "Demo istiyorum"
+
+Arkada:
+  1. State machine → "demo" intent payload yok ama serbest metin "demo" içeriyor
+  2. Greeting step fallback'e gitmez — looksLikeQuestion → false (declarative)
+  3. State machine: "anlamlı metin ama niyet belirsiz" → advance with intent="other"
+  4. Identity_name step
+
+AYLIN: "Harika. Sizi tanıyabilir miyim — adınız?"
+```
+
+Bu senaryoda **tool loop devreye girmez** — çünkü state machine zaten karar verebildi. Doğru davranış.
+
+### Senaryo C — Konuşma ortasında slot zenginleştirme
+
+```
+[user şirket sorusunda]
+USER: "Şirket adımız Mor Botanik. Bu arada Shopify destekliyor musunuz?"
+
+Arkada:
+  1. State machine: identity_company step, looksLikeQuestion → TRUE ("destekliyor musunuz" infix)
+  2. Fallback kararı
+  3. Client paralel: /api/chat + /api/slots
+  4. /api/slots döner: { company: "Mor Botanik" }
+  5. leadData merge → company dolu (zaten boş olduğu için kabul)
+  6. findNextEmptyStep("identity_company", merged) → "identity_email"
+  7. Auto-advance
+
+AYLIN (1. mesaj):
+  "Evet, Shopify entegrasyonumuz hazır. Aynı gün bağlanır."
+
+AYLIN (2. mesaj):
+  "Ekibimizin doğrudan dönüş yapabilmesi için iş e-postanız?"
+```
+
+### Senaryo D — Hayal kurmama testi
+
+```
+USER: "Merhaba"
+       (boş bir selamlama, slot yok)
+
+Beklenen: /api/slots boş obje döner ({}), merge bir şey eklemez, auto-advance yok.
+Davranış: state machine isPureGreeting tespit eder → clarify (intent chip'leri tekrar).
+```
+
+Bu, system prompt'un disiplini sayesinde Gemini'nin **hayal slot uydurmadığını** kanıtlar.
+
+### Curl ile direct test (API)
+
+```bash
+curl -X POST http://localhost:3000/api/slots \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userMessage": "Ben Ayşe Kaya, Acme Tekstil'\''den. Aylık 5000 sipariş işliyoruz.",
+    "alreadyFilled": {}
+  }'
+
+# Beklenen cevap (JSON):
+# {
+#   "ok": true,
+#   "slots": {
+#     "name": "Ayşe Kaya",
+#     "company": "Acme Tekstil",
+#     "volume": "500-5k"
+#   }
+# }
+```
+
+**Eğer cevap `{"ok":true,"slots":{}}` ise:**
+- `GEMINI_API_KEY` env doğru set edildi mi kontrol et
+- Server console'da `[extract-slots]` log'u var mı bak
+
+### Performans gözlemi
+
+Tool loop için bir off-script tur şu paralellikte çalışır:
+- `/api/chat` streaming: 200-2000 ms (Gemini Flash, kullanıcıya ilk token ~400 ms)
+- `/api/slots` JSON: 200-500 ms (kısa output, structured)
+- İkisi `Promise.all`'da bekleniyor; toplam fallback latency = max(stream, slots) ≈ stream süresi
+
+Yani slot extraction **ekstra latency'e mal olmuyor** — streaming zaten devam ederken paralel çalışıyor.
 
 ---
 
 ## Çalıştırma — hızlı manuel test
 
 ```bash
-npm test                          # 77 unit test (3 katman: validation, scoring, state-machine)
+npm test                          # 86 unit test (4 dosya: validation, scoring, state-machine, rate-limit)
 npm run dev                       # http://localhost:3000
 ```
 
@@ -201,5 +305,7 @@ Sonra chatbot'u açıp yukarıdaki senaryoları sırayla deneyin. Her birinin **
 - Kimlik soruları → `validation.test.ts` (`looksLikeQuestion`)
 - Gibberish / klavye basisi → `validation.test.ts` (`looksLikeGibberish`)
 - State davranışı → `state-machine.test.ts` (`greeting step`)
+- Auto-advance (tool loop) → `state-machine.test.ts` (`findNextEmptyStep`)
 - Scoring → `scoring/score.test.ts`
 - Refusal/dismissive → `validation.test.ts` (`isDismissive`, `looksLikeRefusal`)
+- Rate limit adapter → `services/rate-limit.test.ts`

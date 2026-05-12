@@ -15,7 +15,7 @@
  *   ise "Yenile" butonu hata state'i gosteriyor.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCcw } from "lucide-react";
+import { Download, RefreshCcw } from "lucide-react";
 import type { LeadRow } from "@/lib/db/supabase";
 import { FiltersBar, type TemperatureFilter, type StatusFilter, type DateFilter } from "./FiltersBar";
 import { LeadsTable } from "./LeadsTable";
@@ -216,6 +216,18 @@ export function AdminDashboard({
               Yenileme başarısız: {refreshError}
             </span>
           )}
+          <a
+            href={`/api/leads/export?key=${encodeURIComponent(adminKey)}&format=csv${
+              tempFilter !== "all" ? `&temperature=${tempFilter}` : ""
+            }${statusFilter !== "all" ? `&status=${statusFilter}` : ""}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+            aria-label="Lead listesini CSV olarak indir"
+            // CSV download — server attachment header doner, sayfa degismez
+            download
+          >
+            <Download className="size-3.5" />
+            CSV indir
+          </a>
           <button
             type="button"
             onClick={() => void refresh()}

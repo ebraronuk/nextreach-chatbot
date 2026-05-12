@@ -70,6 +70,10 @@ const PERSONAL_EMAIL_CONFIRM_REPLIES: QuickReply[] = [
   { label: "Sirket e-postasi gireyim", echo: "Sirket e-postami yazayim", payload: PAYLOAD.RETRY },
 ];
 
+const SOFT_ABANDON_QUICK_REPLIES: QuickReply[] = [
+  { label: "Yeni sohbet başlat", echo: "Yeniden başlayalım", payload: PAYLOAD.RESET },
+];
+
 export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
   switch (step) {
     case "greeting":
@@ -124,6 +128,12 @@ export function botMessageForStep(step: Step, lead: LeadData): BotMessage {
       return {
         content:
           "Aldım ✓ Talebinizi ekibimize ilettim — 24 saat içinde size dönüş yapacağız. Sizinle tanışmak güzeldi!",
+      };
+    case "soft_abandoned":
+      return {
+        content:
+          "Anladım, şu an konuşmaya hazır olmayabilirsiniz 🙏\n\nİletişim talebinizi oluşturmak istediğinizde her zaman buradayız. Hazır olduğunuzda aşağıdaki butonla yeniden başlayabilirsiniz.",
+        quickReplies: SOFT_ABANDON_QUICK_REPLIES,
       };
   }
 }

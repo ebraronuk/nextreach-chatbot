@@ -16,6 +16,7 @@
 import { MessageCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatHeader } from "./ChatHeader";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 import { ChatInput } from "./ChatInput";
 import { MessageBubble } from "./MessageBubble";
 import { ProactiveBubble } from "./ProactiveBubble";
@@ -25,9 +26,11 @@ import {
   buildBotUIMessage,
   buildUserUIMessage,
   createInitialState,
+  findNextEmptyStep,
   handleUserInput,
   quickRepliesForStep,
 } from "@/lib/conversation/state-machine";
+import { PAYLOAD } from "@/lib/conversation/payloads";
 import {
   clearConversation,
   loadConversation,
@@ -86,63 +89,14 @@ export function Chatbot() {
     }
   }, [state?.messages.length, isTyping, streamingId, open]);
 
-  // Escape ile kapatma + focus trap
-  useEffect(() => {
-    if (!open) return;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    function focusableElements(): HTMLElement[] {
-      if (!dialog) return [];
-      return Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setOpen(false);
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const focusables = focusableElements();
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey) {
-        if (active === first || !active || !dialog?.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (active === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-
-    // Acildiktan sonra ilk focusable'a focus
-    const focusTimer = setTimeout(() => {
-      const node = dialogRef.current;
-      if (!node) return;
-      const focusables = focusableElements();
-      // Input son eleman; close butonu yerine input'a focus daha akici
-      const input = node.querySelector<HTMLTextAreaElement>("#chatbot-input");
-      (input ?? focusables[0])?.focus();
-    }, 50);
-
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      clearTimeout(focusTimer);
-    };
-  }, [open]);
+  // Escape ile kapatma + focus trap — ayri hook'a soyutlandi
+  const closeDialog = useCallback(() => setOpen(false), []);
+  useFocusTrap({
+    active: open,
+    containerRef: dialogRef,
+    onEscape: closeDialog,
+    preferredFocusSelector: "#chatbot-input",
+  });
 
   // Kapanirken trigger'a focus geri don
   useEffect(() => {
@@ -177,8 +131,12 @@ export function Chatbot() {
       setState(stateAfterUser);
       stateRef.current = stateAfterUser;
 
-      // 2) State machine'e sor
-      const result = handleUserInput(step, { text, payload });
+      // 2) State machine'e sor (mevcut clarify deneme sayisi ile)
+      const result = handleUserInput(
+        step,
+        { text, payload },
+        { clarifyAttempts: current.clarifyAttempts },
+      );
 
       // 3) Tip bazli aksiyon
       switch (result.kind) {
@@ -186,12 +144,13 @@ export function Chatbot() {
         case "branch": {
           const nextLead = { ...stateAfterUser.leadData, ...result.updates };
           track("chat_step_entered", { from: step, to: result.nextStep });
-          await playBotTurn(stateAfterUser, result.nextStep, nextLead);
+          // Step ilerledi: clarify sayacı sıfırlanır.
+          await playBotTurn(stateAfterUser, result.nextStep, nextLead, { resetClarify: true });
           break;
         }
         case "submit": {
           const nextLead = { ...stateAfterUser.leadData, ...result.updates };
-          await playBotTurn(stateAfterUser, "submitted", nextLead);
+          await playBotTurn(stateAfterUser, "submitted", nextLead, { resetClarify: true });
 
           // /api/leads'e fire-and-forget POST. Kullanici "Talebinizi olusturduk"
           // mesajini hemen goruyor — backend hatasi UI'i bloklamiyor.
@@ -222,6 +181,7 @@ export function Chatbot() {
           break;
         }
         case "clarify": {
+          // Clarify sayacini artir; varsa quick replies'i koru.
           await playBotClarify(stateAfterUser, result.botMessage);
           break;
         }
@@ -230,8 +190,28 @@ export function Chatbot() {
           await playGeminiFallback(stateAfterUser);
           break;
         }
+        case "soft_abandon": {
+          // Kullanici ardarda 3. kez bos/random cevap verdi.
+          // soft_abandoned step'ine kibarca gec, sadece "Yeni sohbet başlat" butonu cikar.
+          track("chat_soft_abandoned", { lastStep: step });
+          await playBotTurn(stateAfterUser, "soft_abandoned", stateAfterUser.leadData, {
+            resetClarify: true,
+          });
+          break;
+        }
+        case "reset": {
+          // Kullanici "Yeni sohbet başlat" tıkladı.
+          track("chat_reset", { fromStep: step });
+          const fresh = createInitialState();
+          setState(fresh);
+          stateRef.current = fresh;
+          break;
+        }
       }
     },
+    // playGeminiFallback ve playBotTurn ayni component scope'unda; closure
+    // stateRef uzerinden dogru veriye eriste icin deps'e koymuyoruz (kasitli).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -240,6 +220,7 @@ export function Chatbot() {
     fromState: ConversationState,
     nextStep: Step,
     nextLead: ConversationState["leadData"],
+    opts: { resetClarify?: boolean } = {},
   ) {
     setIsTyping(true);
     await sleep(TYPING_DELAY_MS);
@@ -251,6 +232,8 @@ export function Chatbot() {
       leadData: nextLead,
       messages: [...fromState.messages, botMsg],
       lastActivityAt: new Date().toISOString(),
+      // Step degisti: clarify sayacini sifirla.
+      clarifyAttempts: opts.resetClarify ? 0 : fromState.clarifyAttempts,
     };
     setState(updated);
     stateRef.current = updated;
@@ -269,14 +252,28 @@ export function Chatbot() {
       quickReplies: replies,
       timestamp: new Date().toISOString(),
     };
-    setState({
+    const updated: ConversationState = {
       ...fromState,
       messages: [...fromState.messages, botMsg],
       lastActivityAt: new Date().toISOString(),
-    });
+      // Ayni step'te kaldik, clarify denemesi +1
+      clarifyAttempts: fromState.clarifyAttempts + 1,
+    };
+    setState(updated);
+    stateRef.current = updated;
   }
 
-  /** Gemini'ye konusma geçmişi gonder, streaming response'i UI'a yansit. */
+  /**
+   * Gemini'ye konusma geçmişi gonder + paralel olarak slot extraction yap.
+   *
+   * Hibrit tool loop:
+   *   /api/chat   → streaming cevap (kullaniciya goster)
+   *   /api/slots  → JSON slot extraction (state'e merge)
+   *
+   * Stream + slot extraction Promise.all ile paralel; stream cevabini biraz
+   * once UI'a yansitir, sonunda slots gelirse leadData merge edilir; yeni
+   * dolan step varsa otomatik olarak bot bir sonraki soruyu sorar.
+   */
   async function playGeminiFallback(fromState: ConversationState) {
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -295,6 +292,19 @@ export function Chatbot() {
       const history = fromState.messages
         .filter((m) => m !== lastUser)
         .map((m) => ({ role: m.role, content: m.content }));
+
+      // Paralel: slot extraction (fire-and-forget; sonra await edilecek)
+      const slotsPromise = fetch("/api/slots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userMessage: lastUser.content,
+          alreadyFilled: fromState.leadData,
+        }),
+        signal: ac.signal,
+      })
+        .then((r) => (r.ok ? r.json() : { ok: false, slots: {} }))
+        .catch(() => ({ ok: false, slots: {} }));
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -355,18 +365,61 @@ export function Chatbot() {
         }
       }
 
-      // Stream bitti — pending kapat, ayni step'in quick replies'ini ekle (kullanici scripted akisa donebilsin)
-      const replies = quickRepliesForStep(fromState.step, fromState.leadData);
+      // Stream bitti — slot extraction'u bekle, merge et, gerekirse auto-advance
+      const slotsRes = (await slotsPromise) as { ok: boolean; slots?: Record<string, unknown> };
+      const extracted = slotsRes.ok && slotsRes.slots ? slotsRes.slots : {};
+
+      // leadData merge (sadece yeni alanlari — mevcutlari ezme)
+      const mergedLead = { ...fromState.leadData };
+      let mergedAny = false;
+      for (const [k, v] of Object.entries(extracted)) {
+        if (v === undefined || v === null || v === "") continue;
+        if (mergedLead[k as keyof typeof mergedLead] === undefined) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (mergedLead as any)[k] = v;
+          mergedAny = true;
+        }
+      }
+
+      // Hangi step'e atlanmali? Eger slot extraction birden fazla slot doldurduysa
+      // (ornek: name + company), state machine'in normalde sorardigi step'leri atla.
+      const nextStep = mergedAny
+        ? findNextEmptyStep(fromState.step, mergedLead)
+        : fromState.step;
+      const shouldAutoAdvance = nextStep !== fromState.step;
+
+      const replies = quickRepliesForStep(fromState.step, mergedLead);
       setState((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
+          leadData: mergedLead,
           messages: prev.messages.map((m) =>
-            m.id === placeholderId ? { ...m, pending: false, quickReplies: replies } : m,
+            m.id === placeholderId
+              ? {
+                  ...m,
+                  pending: false,
+                  // Auto-advance varsa quick reply gosterme — direkt sonraki step gelecek
+                  quickReplies: shouldAutoAdvance ? undefined : replies,
+                }
+              : m,
           ),
           lastActivityAt: new Date().toISOString(),
         };
       });
+
+      // Auto-advance: bot ikinci bir mesaj at — yeni step icin
+      if (shouldAutoAdvance) {
+        // Kucuk bir typing pause, dogal hisset
+        await sleep(400);
+        if (!ac.signal.aborted) {
+          await playBotTurn(
+            { ...fromState, leadData: mergedLead, messages: stateRef.current?.messages ?? fromState.messages },
+            nextStep,
+            mergedLead,
+          );
+        }
+      }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       console.error("[chatbot] gemini fallback failed:", err);

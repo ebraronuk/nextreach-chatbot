@@ -14,7 +14,14 @@ export type Step =
   | "qualification_tool"
   | "timeline"
   | "summary"
-  | "submitted";
+  | "submitted"
+  /**
+   * Kullanici ayni step'te ust uste 3 kere anlamli cevap veremediginde
+   * (random metin, ısrarla ret, junk vs.) ulasilan "soft exit".
+   * Bot kibarca "hazır olduğunuzda buradayız" der; sadece "yeni sohbet
+   * başlat" butonu ile cikilabilir.
+   */
+  | "soft_abandoned";
 
 export interface LeadData {
   intent?: Intent;
@@ -61,4 +68,9 @@ export interface ConversationState {
   startedAt: string;
   /** Son aktivite — TTL hesaplamasi icin. */
   lastActivityAt: string;
+  /**
+   * Su anki step'te kac kez clarify dondurduk.
+   * advance/branch olunca 0'a reset; >=2 olunca soft_abandoned'e gidiyoruz.
+   */
+  clarifyAttempts: number;
 }

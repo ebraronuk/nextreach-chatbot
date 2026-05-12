@@ -6,7 +6,7 @@
  * akisi tamamen bozulur, ama UI'da hicbir sey gozukmeyebilir.
  */
 import { describe, expect, it } from "vitest";
-import { handleUserInput } from "./state-machine";
+import { findNextEmptyStep, handleUserInput } from "./state-machine";
 import { PAYLOAD } from "./payloads";
 
 describe("greeting step", () => {
@@ -265,5 +265,54 @@ describe("submitted step", () => {
   it("her input fallback ile yanitlanir", () => {
     const r = handleUserInput("submitted", { text: "tekrar deneyebilir miyim?" });
     expect(r.kind).toBe("fallback");
+  });
+});
+
+describe("findNextEmptyStep (tool loop / slot extraction auto-advance)", () => {
+  it("hicbir slot dolu degilse mevcut step'i doner", () => {
+    expect(findNextEmptyStep("greeting", {})).toBe("greeting");
+    expect(findNextEmptyStep("identity_name", {})).toBe("identity_name");
+  });
+
+  it("name dolu, baska bir sey yok → identity_company'e atlar", () => {
+    expect(findNextEmptyStep("greeting", { intent: "demo", name: "Ahmet" })).toBe(
+      "identity_company",
+    );
+  });
+
+  it("name + company dolu → identity_email'e atlar", () => {
+    expect(
+      findNextEmptyStep("greeting", {
+        intent: "demo",
+        name: "Ahmet",
+        company: "Acme",
+      }),
+    ).toBe("identity_email");
+  });
+
+  it("intent + name + company + email + volume dolu → qualification_tool'a atlar", () => {
+    expect(
+      findNextEmptyStep("greeting", {
+        intent: "demo",
+        name: "Ahmet",
+        company: "Acme",
+        email: "ahmet@acme.com",
+        volume: "5k-50k",
+      }),
+    ).toBe("qualification_tool");
+  });
+
+  it("her sey dolu → summary'ye gider", () => {
+    expect(
+      findNextEmptyStep("greeting", {
+        intent: "demo",
+        name: "Ahmet",
+        company: "Acme",
+        email: "ahmet@acme.com",
+        volume: "5k-50k",
+        currentTool: "Shopify",
+        timeline: "this-week",
+      }),
+    ).toBe("summary");
   });
 });

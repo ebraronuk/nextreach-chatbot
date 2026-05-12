@@ -18,6 +18,8 @@ type EventName =
   | "chat_step_entered"
   | "chat_submitted"
   | "chat_fallback_triggered"
+  | "chat_soft_abandoned"
+  | "chat_reset"
   | "proactive_bubble_shown"
   | "proactive_bubble_dismissed"
   | "proactive_bubble_started_chat"

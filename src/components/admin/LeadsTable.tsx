@@ -5,6 +5,7 @@
  * Satira tiklandiginda parent'a `onSelect` ile bildirir; secili satir highlight olur.
  */
 import { ScoreBadge } from "./ScoreBadge";
+import { Badge } from "@/components/ui/badge";
 import type { LeadRow } from "@/lib/db/supabase";
 import { cn } from "@/lib/utils";
 import {
@@ -13,11 +14,12 @@ import {
   STATUS_LABEL_SHORT,
 } from "@/constants/labels";
 
-const STATUS_STYLE: Record<LeadRow["status"], string> = {
-  new: "bg-brand-50 text-brand-700",
-  contacted: "bg-slate-100 text-slate-700",
-  qualified: "bg-green-50 text-green-700",
-  rejected: "bg-slate-100 text-slate-500",
+// Status icin marka/slate paleti — shadcn Badge'in className override'i ile uygulanir.
+const STATUS_CLASS: Record<LeadRow["status"], string> = {
+  new: "bg-brand-50 text-brand-700 hover:bg-brand-50",
+  contacted: "bg-slate-100 text-slate-700 hover:bg-slate-100",
+  qualified: "bg-green-50 text-green-700 hover:bg-green-50",
+  rejected: "bg-slate-100 text-slate-500 hover:bg-slate-100",
 };
 
 // Tek Intl instance — her render'da yenisini olusturmak pahali olabilir.
@@ -114,14 +116,9 @@ export function LeadsTable({
                     {lead.timeline ? TIMELINE_LABEL[lead.timeline] ?? lead.timeline : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium",
-                        STATUS_STYLE[lead.status],
-                      )}
-                    >
+                    <Badge variant="secondary" className={STATUS_CLASS[lead.status]}>
                       {STATUS_LABEL_SHORT[lead.status]}
-                    </span>
+                    </Badge>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {formatRelative(lead.created_at)}
@@ -167,14 +164,9 @@ export function LeadsTable({
               <div className="text-xs text-slate-500">{lead.company}</div>
               <div className="text-xs text-slate-600 mt-1 truncate">{lead.email}</div>
               <div className="mt-2 flex items-center gap-2">
-                <span
-                  className={cn(
-                    "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                    STATUS_STYLE[lead.status],
-                  )}
-                >
+                <Badge variant="secondary" className={STATUS_CLASS[lead.status]}>
                   {STATUS_LABEL_SHORT[lead.status]}
-                </span>
+                </Badge>
                 {lead.intent && (
                   <span className="text-xs text-slate-500">
                     · {INTENT_LABEL[lead.intent] ?? lead.intent}
